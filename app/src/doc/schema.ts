@@ -65,18 +65,39 @@ export interface PatternFields {
   rows: Y.Map<Y.Map<unknown>>;
 }
 
-export interface Clip {
-  takeId: string;
-  startBeat: number;
-  trimIn: number; // seconds
-  trimOut: number; // seconds
+/**
+ * A block on the playlist. Either a recorded take (audio) or a rack pattern.
+ * Editing length, trims and fades only changes these numbers, never the audio.
+ */
+interface ClipBase {
+  startBeat: number; // where it sits on the playlist
+  lengthBeats: number; // how long it plays (drag the right edge)
   gain: number; // 0-1
-  nudgeMs: number;
+  fadeInBeats: number;
+  fadeOutBeats: number;
+  mute: boolean;
 }
 
-export interface TrackFields {
+export interface AudioClip extends ClipBase {
   kind: "audio";
+  takeId: string;
+  trimIn: number; // seconds cut from the start of the take (drag the left edge)
+  nudgeMs: number; // fine timing fix, +/- 50 ms
+}
+
+export interface PatternClip extends ClipBase {
+  kind: "pattern";
+  patternId: string;
+  offsetBeats: number; // start partway into the pattern (drag the left edge)
+}
+
+export type Clip = AudioClip | PatternClip;
+
+export interface TrackFields {
+  /** Playlist rows hold any clip kind, FL-style. */
+  kind: "playlist";
   name: string;
+  order: number;
   clips: Y.Map<Clip>;
 }
 

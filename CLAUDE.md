@@ -73,7 +73,9 @@ Y.Doc
 ├─ meta      Y.Map   { bpm, timeSig, swing, name, version, playState: { playing, startedAtServerMs, bar } }
 ├─ sounds    Y.Map   soundId -> { hash, name, url, durationS, sampleRate }
 ├─ patterns  Y.Map   patternId -> Y.Map { name, length (16|32|64), rows: Y.Map rowId -> Y.Map { soundId, name, order, steps: Y.Map stepIndex -> velocity 0-1 (missing = off), pitch, gain 0-1, pan 0-1, mute, solo } }
-├─ tracks    Y.Map   trackId -> { kind: 'audio', name, clips: Y.Map clipId -> { takeId, startBeat, trimIn, trimOut, gain, nudgeMs } }
+├─ tracks    Y.Map   trackId -> { kind: 'playlist', name, order, clips: Y.Map clipId -> Clip }
+│                    Clip = { kind: 'audio', takeId, trimIn, nudgeMs, ... } | { kind: 'pattern', patternId, offsetBeats, ... }
+│                    both:  { startBeat, lengthBeats, gain 0-1, fadeInBeats, fadeOutBeats, mute }
 ├─ takes     Y.Map   takeId -> { hash, url, peaksUrl, recordedBy, latencyCompMs, uploadState }
 ├─ mixer     Y.Map   channelId -> { gain 0-1, pan 0-1, mute, solo, fx: [] }
 └─ chat      Y.Array { id, userId, name, text, ts, atBeat? }
@@ -85,6 +87,7 @@ Rules:
 - **No audio bytes in Yjs.** Store only hashes and URLs.
 - Version the schema from day 1 so a future JUCE engine can read the same document.
 - Steps are a Y.Map keyed by step index, not a Y.Array: two people toggling the same step at once must end with one value (a Y.Array delete+insert would leave two). Changed 2026-11-23.
+- **Playlist (decided 2026-11-22):** `tracks` is an FL-style playlist. Any row can hold audio clips (takes) and pattern clips. Week 1 only fills it with vocal takes (Wednesday). Pattern clips, and editing clip length, trims and fades on the playlist, come after week 1, with no schema change.
 - Rows carry `order` (a sort key) because a Y.Map has no order, and `name` for display.
 - A row's `soundId` is a key in `sounds`, or `builtin:<id>` for the synth drums every browser can make (kick, snare, clap, hat, openhat, rim, tom, 808). They stand in until real one-shots are uploaded.
 - The room's rack is the pattern with id `main`, created with a 4-row starter kit on first open.
