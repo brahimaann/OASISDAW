@@ -24,6 +24,7 @@
     "tailwind-merge": "^3.7.1",
     "tailwindcss": "^4.3.5",
     "tone": "^15.1.22",
+    "tus-js-client": "^4.3.1",
     "yjs": "^13.6.33",
     "zustand": "^5.1.0"
   },

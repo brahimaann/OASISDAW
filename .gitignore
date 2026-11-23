@@ -6,5 +6,5 @@ dist/
 !.env.example
 server/data/
 *.sqlite*
-e2e-room.png
+e2e-*.png
 .DS_Store

@@ -16,6 +16,8 @@ const syncTarget = process.env.OASIS_SYNC_URL ?? "http://localhost:1234";
 const proxy = {
   "/sync": { target: syncTarget, ws: true, rewrite: (p: string) => p.replace(/^\/sync/, "") },
   "/time": { target: syncTarget },
+  "/uploads": { target: syncTarget },
+  "/files": { target: syncTarget },
 };
 
 export default defineConfig({

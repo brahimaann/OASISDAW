@@ -24,6 +24,7 @@ PORT=3090
 HOST=127.0.0.1
 CLERK_SECRET_KEY=sk_live_...        # same Clerk instance as Sanktuary OS
 OASIS_DB=/path/on/the/big/drive/oasis/oasis.sqlite
+OASIS_FILES=/path/on/the/big/drive/oasis/files   # takes and samples, by SHA-256
 ```
 
 Create `app/.env.local` (never commit it):
@@ -80,7 +81,8 @@ should play and stop together, and chat should show in both.
 
 ## Notes
 
-- The SQLite file holds every room. Put it on a drive that gets backed up.
+- The SQLite file holds every room, and `OASIS_FILES` holds every take. Put both on a drive that gets backed up.
+- Uploads go in 8 MB chunks (tus), under Cloudflare's per-request cap, and resume after a dropped connection.
 - If `HOST=127.0.0.1` and cloudflared runs in a Docker container without host
   networking, the container can't reach it. Use `HOST=0.0.0.0` only if your
   firewall blocks port 3090 from outside.

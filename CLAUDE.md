@@ -174,6 +174,8 @@ npm install                 # from the repo root (npm workspaces: app + server)
 npm run dev:server          # Hocuspocus on :1234, SQLite in server/data/
 npm run dev:app             # Vite on :5173, proxies /sync and /time to the server
 npm run e2e                 # two-tab smoke test (both dev servers running, DEV mode)
+node e2e/record.mjs         # vocal capture test with a fake mic
+npx tsx app/test/latency.test.ts   # latency-check math
 npm start                   # production: builds the app, server serves it + /sync + /time
 ```
 
@@ -182,4 +184,6 @@ npm start                   # production: builds the app, server serves it + /sy
 - No Clerk keys = DEV mode: you type a name, and the server lets anyone in. Set `VITE_CLERK_PUBLISHABLE_KEY` (app/.env.local) and `CLERK_SECRET_KEY` (server/.env) to turn sign-in on.
 - The browser only talks to one origin: `/sync` (WebSocket) and `/time` (clock offset) are proxied to the server. Production should do the same behind the tunnel.
 - COOP/COEP use `credentialless` (not `require-corp`) so Clerk's scripts and avatars still load.
+- Vocal takes: raw PCM from an AudioWorklet (`app/src/audio`), chunks kept in IndexedDB until the server has them, 32-bit float WAV, uploaded by tus to `/uploads`, served by hash from `/files/<sha256>`. The server re-checks the hash. A take that was mid-recording or mid-upload during a refresh is finished on the next visit.
+- Take position: the first sample's context time, minus the device's round-trip latency, mapped onto the transport. Latency is measured per input/output pair ("Check latency") and kept in that browser's localStorage, or estimated from what the browser reports.
 - audio/ui components are copied into `app/src/components/audio-ui` from the `base-nova` style of `ouestlabs/audio-ui` (MIT). Its site is the shadcn registry, so re-copy from there to update.

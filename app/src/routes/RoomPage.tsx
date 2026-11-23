@@ -8,6 +8,8 @@ import { Chat } from "@/room/Chat";
 import { Presence } from "@/room/Presence";
 import { TransportBar } from "@/room/TransportBar";
 import { ChannelRack } from "@/room/ChannelRack";
+import { Playlist } from "@/room/Playlist";
+import { RecordPanel } from "@/room/RecordPanel";
 
 const COLORS = ["#22d3ee", "#f472b6", "#a3e635", "#fbbf24", "#a78bfa", "#fb7185", "#34d399", "#60a5fa"];
 
@@ -73,6 +75,8 @@ export function RoomPage() {
           <div className="flex min-w-0 flex-col gap-4">
             <TransportBar doc={room.doc} />
             <ChannelRack doc={room.doc} />
+            <RecordPanel doc={room.doc} roomId={id} />
+            <Playlist doc={room.doc} />
           </div>
           <aside className="flex flex-col gap-4">
             <Presence provider={room.provider} />

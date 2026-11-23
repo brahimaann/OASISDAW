@@ -336,3 +336,54 @@ export function ensureMainPattern(doc: Y.Doc, makeId: () => string) {
     for (const s of BUILTIN_SOUNDS.slice(0, 4)) addRow(pattern, makeId(), s.id, s.name);
   }, "init"); // not "null", so nobody's undo removes the starter kit
 }
+
+/* ---------- playlist ---------- */
+
+export function ensureTrack(doc: Y.Doc, trackId: string, name: string) {
+  const tracks = getTracks(doc);
+  if (tracks.has(trackId)) return tracks.get(trackId)!;
+  let maxOrder = 0;
+  tracks.forEach((t) => (maxOrder = Math.max(maxOrder, (t.get("order") as number) ?? 0)));
+  const track = new Y.Map<unknown>() as TypedMap<TrackFields>;
+  track.set("kind", "playlist");
+  track.set("name", name);
+  track.set("order", maxOrder + 1);
+  track.set("clips", new Y.Map<Clip>());
+  tracks.set(trackId, track);
+  return track;
+}
+
+export function listTracks(doc: Y.Doc) {
+  const out: { id: string; track: TypedMap<TrackFields> }[] = [];
+  getTracks(doc).forEach((track, id) => out.push({ id, track }));
+  return out.sort((a, b) => (a.track.get("order") ?? 0) - (b.track.get("order") ?? 0) || a.id.localeCompare(b.id));
+}
+
+/** Puts a recorded take on the playlist: the take record plus one clip that plays it. */
+export function addRecordedTake(
+  doc: Y.Doc,
+  opts: { trackId: string; trackName: string; takeId: string; clipId: string; take: Take; clip: Omit<AudioClip, "kind" | "takeId"> },
+) {
+  doc.transact(() => {
+    getTakes(doc).set(opts.takeId, opts.take);
+    const track = ensureTrack(doc, opts.trackId, opts.trackName);
+    track.get("clips")?.set(opts.clipId, { kind: "audio", takeId: opts.takeId, ...opts.clip });
+  });
+}
+
+export function setTakeUploaded(doc: Y.Doc, takeId: string, url: string) {
+  const takes = getTakes(doc);
+  const t = takes.get(takeId);
+  if (t) takes.set(takeId, { ...t, url, uploadState: "uploaded" });
+}
+
+/** Clips are plain objects (edited as a whole), so concurrent edits to one clip: last write wins. */
+export function updateClip(doc: Y.Doc, trackId: string, clipId: string, patch: Partial<Clip>) {
+  const clips = getTracks(doc).get(trackId)?.get("clips");
+  const c = clips?.get(clipId);
+  if (c && clips) clips.set(clipId, { ...c, ...patch } as Clip);
+}
+
+export function removeClip(doc: Y.Doc, trackId: string, clipId: string) {
+  getTracks(doc).get(trackId)?.get("clips")?.delete(clipId);
+}

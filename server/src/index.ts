@@ -3,6 +3,7 @@ import { SQLite } from "@hocuspocus/extension-sqlite";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { verifyToken } from "@clerk/backend";
+import { createFiles } from "./files.ts";
 import { serveStatic } from "./static.ts";
 
 const port = Number(process.env.PORT ?? 1234);
@@ -25,6 +26,21 @@ if (!clerkSecretKey) {
   );
 }
 
+async function checkToken(token: string) {
+  if (!clerkSecretKey) return { userId: "dev", dev: true };
+  const claims = await verifyToken(token, { secretKey: clerkSecretKey });
+  return { userId: claims.sub };
+}
+
+// Takes and samples live on the big drive in production (OASIS_FILES).
+const filesDir = path.resolve(process.env.OASIS_FILES ?? "data/files");
+const handleFiles = await createFiles({
+  dir: filesDir,
+  authorize: async (authorization) => {
+    await checkToken((authorization ?? "").replace(/^Bearer\s+/i, ""));
+  },
+});
+
 const server = new Server({
   name: "oasis-sync",
   port,
@@ -38,9 +54,7 @@ const server = new Server({
     if (!/^room:[A-Za-z0-9_-]{1,64}$/.test(documentName)) {
       throw new Error("Bad room name");
     }
-    if (!clerkSecretKey) return { userId: "dev", dev: true };
-    const claims = await verifyToken(token, { secretKey: clerkSecretKey });
-    return { userId: claims.sub };
+    return checkToken(token);
   },
 
   // Tiny HTTP endpoint so browsers can estimate their clock offset to the server.
@@ -55,6 +69,9 @@ const server = new Server({
       // An empty rejection stops Hocuspocus' default response.
       throw null;
     }
+    if (await handleFiles(request, response)) {
+      throw null;
+    }
     if (staticDir && (await serveStatic(staticDir, request, response))) {
       throw null;
     }
@@ -65,5 +82,5 @@ const server = new Server({
 });
 
 server.listen().then(() => {
-  console.log(`[oasis] listening on http://localhost:${port} (db: ${dbFile}, app: ${staticDir ?? "not served"})`);
+  console.log(`[oasis] listening on http://localhost:${port} (db: ${dbFile}, files: ${filesDir}, app: ${staticDir ?? "not served"})`);
 });

@@ -7,6 +7,7 @@ import * as Tone from "tone";
 import type * as Y from "yjs";
 import { getMeta, readMeta, secondsPerBar, type MetaFields } from "@/doc/schema";
 import { serverNow } from "@/sync/clock";
+import { audioContext } from "@/engine/audioContext";
 
 export const STEPS_PER_BAR = 16;
 
@@ -30,11 +31,35 @@ function ensureClick() {
   }, "4n", 0);
 }
 
+/**
+ * Where the local Transport was last started: at context time `ctxTime` it
+ * was at `offsetS` seconds from bar 0, at `bpm`. Used to place recorded audio.
+ */
+let anchor: { ctxTime: number; offsetS: number; bpm: number } | null = null;
+let anchorVersion = 0;
+
+/** Goes up every time the Transport is (re)started. */
+export function transportVersion() {
+  return anchorVersion;
+}
+
+/** Transport position (seconds from bar 0) at a context time, or null if not playing.
+ * Negative means before the start (count-in, or audio captured before Play landed). */
+export function transportSecondsAt(ctxTime: number): number | null {
+  if (!anchor) return null;
+  return anchor.offsetS + (ctxTime - anchor.ctxTime);
+}
+
+export function currentBpm() {
+  return Tone.getTransport().bpm.value;
+}
+
 /** Applies the shared state to the local Transport. */
 function apply(meta: MetaFields) {
   const transport = Tone.getTransport();
   const { bpm, timeSig, playState } = meta;
   transport.stop();
+  anchor = null;
   transport.bpm.value = bpm;
   transport.timeSignature = timeSig[0];
   if (!playState.playing) return;
@@ -46,10 +71,14 @@ function apply(meta: MetaFields) {
   const now = Tone.now();
   if (delayS >= 0) {
     transport.start(now + delayS, startOffsetS);
+    anchor = { ctxTime: now + delayS, offsetS: startOffsetS, bpm };
+    anchorVersion++;
   } else {
     // We joined (or heard about it) late: jump in where everyone else is.
     const catchUp = 0.05;
     transport.start(now + catchUp, startOffsetS - delayS + catchUp);
+    anchor = { ctxTime: now + catchUp, offsetS: startOffsetS - delayS + catchUp, bpm };
+    anchorVersion++;
   }
 }
 
@@ -67,7 +96,7 @@ export function followDoc(doc: Y.Doc): () => void {
   meta.observe(onChange);
   onChange();
   // If audio gets unlocked after the room started playing, catch up.
-  const ctx = Tone.getContext().rawContext as AudioContext;
+  const ctx = audioContext();
   const onState = () => {
     if (ctx.state === "running") {
       last = "";

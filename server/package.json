@@ -10,6 +10,8 @@
     "@clerk/backend": "^3.31.4",
     "@hocuspocus/extension-sqlite": "^4.9.0",
     "@hocuspocus/server": "^4.9.0",
+    "@tus/file-store": "^2.1.2",
+    "@tus/server": "^2.4.7",
     "yjs": "^13.6.33"
   },
   "devDependencies": {
