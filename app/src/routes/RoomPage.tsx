@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { AccountButton, useMe } from "@/auth/auth";
-import { followDoc } from "@/engine/transport";
+import { debugClock, followDoc } from "@/engine/transport";
 import { syncClock } from "@/sync/clock";
 import { useRoom, type PresenceUser } from "@/sync/useRoom";
 import { Chat } from "@/room/Chat";
@@ -38,7 +38,7 @@ export function RoomPage() {
   }, [room, synced, clockReady]);
 
   useEffect(() => {
-    if (room) (window as unknown as Record<string, unknown>).__oasisDoc = room.doc;
+    if (room) Object.assign(window, { __oasisDoc: room.doc, __oasisClock: debugClock });
   }, [room]);
 
   const [copied, setCopied] = useState(false);

@@ -1,10 +1,18 @@
 import { Server } from "@hocuspocus/server";
 import { SQLite } from "@hocuspocus/extension-sqlite";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { verifyToken } from "@clerk/backend";
+import { serveStatic } from "./static.ts";
 
 const port = Number(process.env.PORT ?? 1234);
 const clerkSecretKey = process.env.CLERK_SECRET_KEY;
 const dbFile = process.env.OASIS_DB ?? "data/oasis.sqlite";
+// Built app to serve. Set OASIS_STATIC=off to serve only /sync and /time (dev uses Vite instead).
+const staticDir =
+  process.env.OASIS_STATIC === "off"
+    ? null
+    : path.resolve(process.env.OASIS_STATIC ?? path.join(path.dirname(fileURLToPath(import.meta.url)), "../../app/dist"));
 
 if (!clerkSecretKey && process.env.NODE_ENV === "production") {
   // Never run an open server on the real URL by accident.
@@ -20,6 +28,8 @@ if (!clerkSecretKey) {
 const server = new Server({
   name: "oasis-sync",
   port,
+  // Only reachable through the tunnel / reverse proxy on this machine.
+  address: process.env.HOST ?? "127.0.0.1",
   quiet: true,
   extensions: [new SQLite({ database: dbFile })],
 
@@ -45,9 +55,15 @@ const server = new Server({
       // An empty rejection stops Hocuspocus' default response.
       throw null;
     }
+    if (staticDir && (await serveStatic(staticDir, request, response))) {
+      throw null;
+    }
+    response.writeHead(404, { "Content-Type": "text/plain" });
+    response.end("Not found");
+    throw null;
   },
 });
 
 server.listen().then(() => {
-  console.log(`[oasis] sync server on ws://localhost:${port} (db: ${dbFile})`);
+  console.log(`[oasis] listening on http://localhost:${port} (db: ${dbFile}, app: ${staticDir ?? "not served"})`);
 });

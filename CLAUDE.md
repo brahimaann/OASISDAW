@@ -168,7 +168,10 @@ npm install                 # from the repo root (npm workspaces: app + server)
 npm run dev:server          # Hocuspocus on :1234, SQLite in server/data/
 npm run dev:app             # Vite on :5173, proxies /sync and /time to the server
 npm run e2e                 # two-tab smoke test (both dev servers running, DEV mode)
+npm start                   # production: builds the app, server serves it + /sync + /time
 ```
+
+- **Hosting (decided 2026-11-22):** `oasis.sanktuary.studio`, its own process on port 3090 beside the Sanktuary OS site, one more Cloudflare Tunnel hostname. Steps: `docs/DEPLOY.md`.
 
 - No Clerk keys = DEV mode: you type a name, and the server lets anyone in. Set `VITE_CLERK_PUBLISHABLE_KEY` (app/.env.local) and `CLERK_SECRET_KEY` (server/.env) to turn sign-in on.
 - The browser only talks to one origin: `/sync` (WebSocket) and `/time` (clock offset) are proxied to the server. Production should do the same behind the tunnel.

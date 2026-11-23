@@ -1,12 +1,16 @@
 {
   "name": "oasis",
   "private": true,
-  "workspaces": ["app", "server"],
+  "workspaces": [
+    "app",
+    "server"
+  ],
   "scripts": {
     "dev:server": "npm run dev -w server",
     "dev:app": "npm run dev -w app",
     "build": "npm run build -w app",
     "typecheck": "npm run typecheck -w app && npm run typecheck -w server",
-    "e2e": "node e2e/two-tabs.mjs"
+    "e2e": "node e2e/two-tabs.mjs",
+    "start": "npm run build && NODE_ENV=production npm run start -w server"
   }
 }

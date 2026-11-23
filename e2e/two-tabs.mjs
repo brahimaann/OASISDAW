@@ -1,5 +1,6 @@
 // Two-tab smoke test: presence, shared play/stop, BPM, chat, shared steps.
-// Needs the server (npm run dev:server) and app (npm run dev:app) running in DEV mode.
+// Needs the app running in DEV mode: dev servers (npm run dev:server + dev:app),
+// or a production build served by the server with no CLERK_SECRET_KEY.
 // Run: node e2e/two-tabs.mjs [baseUrl]
 import { createRequire } from "node:module";
 
@@ -27,10 +28,8 @@ async function join(name) {
   return page;
 }
 
-const clock = (page) => page.evaluate(async () => {
-  const t = await import("/src/engine/transport.ts");
-  return t.debugClock();
-});
+// RoomPage exposes the clock on window for tests and the console.
+const clock = (page) => page.evaluate(() => window.__oasisClock());
 
 const a = await join("Hima");
 const b = await join("Prince");
