@@ -67,12 +67,32 @@ await a.getByLabel("Message").fill("yo, drums on your side?");
 await a.getByRole("button", { name: "Send" }).click();
 await b.getByTestId("chat").getByText("yo, drums on your side?").waitFor({ timeout: 5000 }).then(() => ok("chat synced"), () => fail("chat"));
 
-// Shared step on the audio/ui Sequencer.
-const cellA = a.getByTestId("sequencer").getByRole("button").first();
-await cellA.click();
-await b.waitForTimeout(500);
-const pressedB = await b.getByTestId("sequencer").getByRole("button").first().getAttribute("aria-pressed");
-if (pressedB === "true") ok("sequencer step synced"); else fail(`step not synced (aria-pressed=${pressedB})`);
+// Channel rack: a step, a new row, mute, remove.
+const cell = (page, name) => page.getByTestId("sequencer").getByRole("button", { name, exact: true });
+await cell(a, "Kick, step 1").click();
+await b.waitForTimeout(400);
+if ((await cell(b, "Kick, step 1").getAttribute("aria-pressed")) === "true") ok("rack step synced"); else fail("rack step not synced");
+
+await a.getByTestId("add-sound").selectOption("builtin:808");
+await b.getByRole("button", { name: "808, step 1", exact: true }).waitFor({ timeout: 3000 }).then(() => ok("added row shows for B"), () => fail("added row"));
+
+await b.getByRole("button", { name: "808, step 5", exact: true }).click();
+await b.locator('[data-row="808"]').getByRole("button", { name: "Mute" }).click();
+await a.waitForTimeout(400);
+if ((await a.locator('[data-row="808"]').getByRole("button", { name: "Mute" }).getAttribute("aria-pressed")) === "true") ok("mute synced"); else fail("mute");
+
+// Undo is per person: A's undo takes back A's last edit, not B's.
+await cell(a, "Snare, step 3").click();
+await a.waitForTimeout(600);
+await a.locator("body").click({ position: { x: 5, y: 5 } });
+await a.keyboard.press("Control+z");
+await b.waitForTimeout(400);
+const snare = await cell(b, "Snare, step 3").getAttribute("aria-pressed");
+const b808 = await cell(a, "808, step 5").getAttribute("aria-pressed");
+if (snare === "false" && b808 === "true") ok("A's undo took back A's step and left B's alone"); else fail(`undo: snare=${snare} 808=${b808}`);
+
+await b.getByRole("button", { name: "Remove 808" }).click();
+await a.getByRole("button", { name: "808, step 1", exact: true }).waitFor({ state: "detached", timeout: 3000 }).then(() => ok("row removal synced"), () => fail("remove"));
 
 // Late joiner lands in the right place.
 await a.getByTestId("play").click();

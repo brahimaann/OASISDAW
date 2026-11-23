@@ -7,7 +7,7 @@ import { useRoom, type PresenceUser } from "@/sync/useRoom";
 import { Chat } from "@/room/Chat";
 import { Presence } from "@/room/Presence";
 import { TransportBar } from "@/room/TransportBar";
-import { UiKitTest } from "@/room/UiKitTest";
+import { ChannelRack } from "@/room/ChannelRack";
 
 const COLORS = ["#22d3ee", "#f472b6", "#a3e635", "#fbbf24", "#a78bfa", "#fb7185", "#34d399", "#60a5fa"];
 
@@ -55,7 +55,7 @@ export function RoomPage() {
   }
 
   return (
-    <div className="mx-auto flex min-h-dvh max-w-6xl flex-col gap-4 p-4">
+    <div className="mx-auto flex min-h-dvh max-w-7xl flex-col gap-4 p-4">
       <header className="flex flex-wrap items-center gap-3">
         <Link className="text-xl font-bold tracking-tight" to="/">OASIS</Link>
         <span className="font-mono text-sm text-muted-foreground">room {id}</span>
@@ -69,10 +69,10 @@ export function RoomPage() {
       {!room || !synced ? (
         <div className="panel text-muted-foreground">Joining room…</div>
       ) : (
-        <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
+        <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
           <div className="flex min-w-0 flex-col gap-4">
             <TransportBar doc={room.doc} />
-            <UiKitTest doc={room.doc} />
+            <ChannelRack doc={room.doc} />
           </div>
           <aside className="flex flex-col gap-4">
             <Presence provider={room.provider} />

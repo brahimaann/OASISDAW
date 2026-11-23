@@ -38,7 +38,12 @@ export interface Sound {
 
 /** A row in the channel rack. Lives as a Y.Map so fields edit independently. */
 export interface RowFields {
+  /** A key in `sounds`, or a built-in sound like "builtin:kick" (see BUILTIN_SOUNDS). */
   soundId: string;
+  /** Display name, e.g. "Kick". */
+  name: string;
+  /** Sort key for the rack. Rows are a map, so order lives here. */
+  order: number;
   /**
    * Step index ("0".."63") -> velocity 0-1. A missing key means off.
    * A Y.Map, not a Y.Array: two people toggling the same step at once must
@@ -235,10 +240,15 @@ export function createPattern(doc: Y.Doc, id: string, name: string, length: Patt
   return pattern;
 }
 
-/** Adds a row to a pattern, with all steps off. */
-export function addRow(pattern: TypedMap<PatternFields>, rowId: string, soundId: string) {
+/** Adds a row to a pattern, with all steps off, at the bottom of the rack. */
+export function addRow(pattern: TypedMap<PatternFields>, rowId: string, soundId: string, name = soundId) {
   const row = new Y.Map<unknown>() as TypedMap<RowFields>;
+  const rows = pattern.get("rows");
+  let maxOrder = 0;
+  rows?.forEach((r: Y.Map<unknown>) => (maxOrder = Math.max(maxOrder, (r.get("order") as number) ?? 0)));
   row.set("soundId", soundId);
+  row.set("name", name);
+  row.set("order", maxOrder + 1);
   row.set("steps", new Y.Map<number>());
   row.set("pitch", 0);
   row.set("gain", 0.8);
@@ -262,4 +272,46 @@ export function setStep(row: TypedMap<RowFields>, index: number, velocity: numbe
 export function readSteps(row: TypedMap<RowFields>, length: number): number[] {
   const steps = row.get("steps");
   return Array.from({ length }, (_, i) => steps?.get(String(i)) ?? 0);
+}
+
+/** A pattern's rows in rack order. */
+export function listRows(pattern: TypedMap<PatternFields> | undefined): { id: string; row: TypedMap<RowFields> }[] {
+  const out: { id: string; row: TypedMap<RowFields> }[] = [];
+  pattern?.get("rows")?.forEach((row: Y.Map<unknown>, id: string) => out.push({ id, row: row as TypedMap<RowFields> }));
+  return out.sort((a, b) => (a.row.get("order") ?? 0) - (b.row.get("order") ?? 0) || a.id.localeCompare(b.id));
+}
+
+export function removeRow(pattern: TypedMap<PatternFields>, rowId: string) {
+  pattern.get("rows")?.delete(rowId);
+}
+
+/* ---------- built-in sounds ---------- */
+
+/**
+ * Synth sounds every browser can make with no download. They stand in for
+ * one-shots until real samples arrive. Row soundIds use "builtin:<id>".
+ */
+export const BUILTIN_SOUNDS = [
+  { id: "builtin:kick", name: "Kick" },
+  { id: "builtin:snare", name: "Snare" },
+  { id: "builtin:clap", name: "Clap" },
+  { id: "builtin:hat", name: "Hat" },
+  { id: "builtin:openhat", name: "Open hat" },
+  { id: "builtin:rim", name: "Rim" },
+  { id: "builtin:tom", name: "Tom" },
+  { id: "builtin:808", name: "808" },
+] as const;
+
+export const MAIN_PATTERN_ID = "main";
+
+/**
+ * Makes sure the room has its main pattern with a starter kit. If two people
+ * open a new room at once, one whole pattern wins, so rows never double up.
+ */
+export function ensureMainPattern(doc: Y.Doc, makeId: () => string) {
+  if (getPatterns(doc).has(MAIN_PATTERN_ID)) return;
+  doc.transact(() => {
+    const pattern = createPattern(doc, MAIN_PATTERN_ID, "Pattern 1");
+    for (const s of BUILTIN_SOUNDS.slice(0, 4)) addRow(pattern, makeId(), s.id, s.name);
+  }, "init"); // not "null", so nobody's undo removes the starter kit
 }
