@@ -1,0 +1,10 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+server/data/
+*.sqlite*
+e2e-room.png
+.DS_Store
