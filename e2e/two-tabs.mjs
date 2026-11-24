@@ -34,6 +34,8 @@ const clock = (page) => page.evaluate(() => window.__oasisClock());
 const a = await join("Hima");
 const b = await join("Prince");
 
+await a.getByTestId("presence-button").click();
+await b.getByTestId("presence-button").click();
 await b.getByTestId("presence").getByText("Hima").waitFor({ timeout: 5000 }).then(() => ok("B sees A in the room"), () => fail("presence"));
 await a.getByTestId("presence").getByText("Prince").waitFor({ timeout: 5000 }).then(() => ok("A sees B in the room"), () => fail("presence"));
 
@@ -62,10 +64,33 @@ await a.waitForTimeout(500);
 const [ca3, cb3] = await Promise.all([clock(a), clock(b)]);
 if (ca3.state === "stopped" && cb3.state === "stopped") ok("stop from B stopped both"); else fail("stop");
 
-// Chat.
+// Chat: B sees an unread dot, opens the drawer, reads it.
+await a.getByTestId("chat-button").click();
 await a.getByLabel("Message").fill("yo, drums on your side?");
 await a.getByRole("button", { name: "Send" }).click();
+await b.getByTestId("chat-unread").waitFor({ timeout: 5000 }).then(() => ok("unread dot on B's chat button"), () => fail("no unread dot"));
+await b.getByTestId("chat-button").click();
 await b.getByTestId("chat").getByText("yo, drums on your side?").waitFor({ timeout: 5000 }).then(() => ok("chat synced"), () => fail("chat"));
+
+// Layout: the rack floats by default; F6 closes and reopens it; it can dock and squash.
+await a.keyboard.press("Escape");
+await a.getByTestId("floating-window").waitFor().then(() => ok("rack opens as a floating window"), () => fail("no floating rack"));
+await a.locator("body").click({ position: { x: 5, y: 5 } });
+await a.keyboard.press("F6");
+await a.getByTestId("floating-window").waitFor({ state: "detached", timeout: 2000 }).then(() => ok("F6 closes the rack"), () => fail("F6 close"));
+await a.keyboard.press("F6");
+await a.getByRole("button", { name: "Dock to bottom" }).click();
+await a.getByTestId("dock").getByTestId("sequencer").waitFor().then(() => ok("rack docks to the bottom"), () => fail("dock"));
+await a.getByTestId("squash").click();
+if (await a.getByTestId("sequencer").count() === 0) ok("dock squashes to a strip"); else fail("squash");
+await a.getByTestId("squash").click();
+await a.getByRole("button", { name: "Collapse browser" }).click();
+await a.getByTestId("browser-tab").waitFor().then(() => ok("browser collapses to a side tab"), () => fail("browser tab"));
+await a.getByTestId("browser-tab").click();
+
+// Drag a sound from the browser onto the rack: a new row, for both.
+await a.locator('[data-sound="builtin:tom"]').dragTo(a.getByTestId("rack"));
+await b.getByRole("button", { name: "Tom, step 1", exact: true }).waitFor({ timeout: 3000 }).then(() => ok("dragged-in sound adds a row for B"), () => fail("drag to rack"));
 
 // Channel rack: a step, a new row, mute, remove.
 const cell = (page, name) => page.getByTestId("sequencer").getByRole("button", { name, exact: true });
@@ -90,6 +115,14 @@ await b.waitForTimeout(400);
 const snare = await cell(b, "Snare, step 3").getAttribute("aria-pressed");
 const b808 = await cell(a, "808, step 5").getAttribute("aria-pressed");
 if (snare === "false" && b808 === "true") ok("A's undo took back A's step and left B's alone"); else fail(`undo: snare=${snare} 808=${b808}`);
+
+// Layout is per person and survives a reload.
+await a.reload();
+await a.getByLabel("Your name").isVisible().then(async (v) => { if (v) { await a.getByLabel("Your name").fill("Hima"); await a.getByRole("button", { name: "Continue" }).click(); } });
+await a.getByTestId("dock").waitFor({ timeout: 5000 }).then(() => ok("A's docked layout came back after reload"), () => fail("layout not saved"));
+if (await b.getByTestId("floating-window").count() === 1) ok("B's layout is still B's own (floating)"); else fail("B layout changed");
+const sb = a.getByText("Click here to turn on sound");
+if (await sb.isVisible()) await sb.click();
 
 await b.getByRole("button", { name: "Remove 808" }).click();
 await a.getByRole("button", { name: "808, step 1", exact: true }).waitFor({ state: "detached", timeout: 3000 }).then(() => ok("row removal synced"), () => fail("remove"));

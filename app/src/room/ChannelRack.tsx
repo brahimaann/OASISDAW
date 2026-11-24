@@ -3,19 +3,19 @@
  * Sequencer and Knob. Every click sends only the cells that changed.
  */
 import { useEffect, useMemo, useState } from "react";
-import * as Y from "yjs";
+import type * as Y from "yjs";
 import { Knob } from "@/components/audio-ui/knob";
 import { createSource } from "@/components/audio-ui/primitive";
 import { Sequencer } from "@/components/audio-ui/sequencer";
 import { newId } from "@/doc/ids";
 import {
-  addRow, BUILTIN_SOUNDS, ensureMainPattern, getPatterns, listRows, MAIN_PATTERN_ID,
+  addRow, BUILTIN_SOUNDS, getPatterns, listRows, MAIN_PATTERN_ID,
   readSteps, removeRow, setStep, type RowFields, type TypedMap,
 } from "@/doc/schema";
-import { playRack } from "@/engine/rack";
 import { currentStep, STEPS_PER_BAR, unlockAudio } from "@/engine/transport";
 import { previewSound } from "@/engine/voices";
 import { useY } from "@/sync/useY";
+import { SOUND_MIME } from "./Browser";
 import { cn } from "@/lib/utils";
 
 interface RowView {
@@ -31,9 +31,6 @@ interface RowView {
 }
 
 export function ChannelRack({ doc }: { doc: Y.Doc }) {
-  useEffect(() => ensureMainPattern(doc, newId), [doc]);
-  useEffect(() => playRack(doc), [doc]);
-
   const patterns = getPatterns(doc);
   const rows = useY(patterns, (): RowView[] =>
     listRows(patterns.get(MAIN_PATTERN_ID)).map(({ id, row }) => ({
@@ -51,22 +48,7 @@ export function ChannelRack({ doc }: { doc: Y.Doc }) {
   const value = useMemo(() => rows.map((r) => r.steps.map((v) => v > 0)), [rows]);
   const velocities = useMemo(() => rows.map((r) => r.steps.map((v) => (v > 0 ? v : 1))), [rows]);
   const [showVelocity, setShowVelocity] = useState(false);
-
-  // Undo only your own edits (remote changes have a different origin).
-  const undo = useMemo(() => new Y.UndoManager(patterns, { captureTimeout: 400 }), [patterns]);
-  useEffect(() => () => undo.destroy(), [undo]);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (target?.closest("input, textarea, select")) return;
-      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return;
-      e.preventDefault();
-      if (e.shiftKey) undo.redo();
-      else undo.undo();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [undo]);
+  const [dropping, setDropping] = useState(false);
 
   // The playing column, pushed every frame without re-rendering React.
   const [source] = useState(() => createSource(-1));
@@ -113,10 +95,26 @@ export function ChannelRack({ doc }: { doc: Y.Doc }) {
   };
 
   return (
-    <section className="panel flex flex-col gap-3">
+    <section
+      className={cn("flex flex-col gap-3 rounded-md", dropping && "ring-2 ring-primary")}
+      data-testid="rack"
+      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropping(false); }}
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes(SOUND_MIME)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "copy";
+        setDropping(true);
+      }}
+      onDrop={(e) => {
+        setDropping(false);
+        const id = e.dataTransfer.getData(SOUND_MIME);
+        if (!id) return;
+        e.preventDefault();
+        addSound(id);
+      }}
+    >
       <div className="flex flex-wrap items-center gap-2">
-        <h2 className="text-sm font-semibold">Channel rack</h2>
-        <span className="text-xs text-muted-foreground">Edits show and play for everyone. Ctrl/Cmd+Z undoes only yours.</span>
+        <span className="text-xs text-muted-foreground">Pattern 1 · Edits show and play for everyone. Ctrl/Cmd+Z undoes only yours.</span>
         <label className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
           <input checked={showVelocity} onChange={(e) => setShowVelocity(e.target.checked)} type="checkbox" />
           Velocity
@@ -159,7 +157,7 @@ export function ChannelRack({ doc }: { doc: Y.Doc }) {
           <option value="">+ Add sound</option>
           {BUILTIN_SOUNDS.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
-        <span className="text-xs text-muted-foreground">Built-in synth drums for now. Your own one-shots come next.</span>
+        <span className="text-xs text-muted-foreground">Or drag a sound from the browser onto the rack, or onto a row to swap it.</span>
       </div>
     </section>
   );
@@ -169,13 +167,32 @@ function RowControls({ doc, r }: { doc: Y.Doc; r: RowView }) {
   // Knobs move locally while you drag and send one change when you let go.
   const [gain, setGain] = useState(r.gain);
   const [pan, setPan] = useState(r.pan);
+  const [over, setOver] = useState(false);
   useEffect(() => setGain(r.gain), [r.gain]);
   useEffect(() => setPan(r.pan), [r.pan]);
 
   const set = <K extends keyof RowFields & string>(key: K, value: RowFields[K]) => r.row.set(key, value);
 
   return (
-    <div className="flex items-center gap-1 pr-2" data-row={r.name}>
+    <div
+      className={cn("flex items-center gap-1 rounded pr-2", over && "bg-primary/25")}
+      data-row={r.name}
+      onDragLeave={() => setOver(false)}
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes(SOUND_MIME)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        setOver(true);
+      }}
+      onDrop={(e) => {
+        setOver(false);
+        const s = BUILTIN_SOUNDS.find((x) => x.id === e.dataTransfer.getData(SOUND_MIME));
+        if (!s) return;
+        e.preventDefault();
+        e.stopPropagation();
+        doc.transact(() => { set("soundId", s.id); set("name", s.name); });
+      }}
+    >
       <button
         aria-label={`Play ${r.name}`}
         className="h-6 w-5 rounded text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"

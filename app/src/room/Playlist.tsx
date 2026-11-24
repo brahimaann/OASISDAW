@@ -1,14 +1,15 @@
 /**
- * The playlist: tracks on a bar ruler, clips placed by beat. This week it
- * holds recorded takes; pattern clips and drag-to-edit come after week 1.
+ * The playlist, in the middle of the screen: tracks on a bar ruler, clips
+ * placed by beat. It holds recorded takes now; pattern clips come Wednesday.
  */
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent } from "react";
 import * as Tone from "tone";
 import type * as Y from "yjs";
 import { getTakes, getTracks, listTracks, readMeta, removeClip, updateClip, type AudioClip, type Clip } from "@/doc/schema";
 import { onBuffersChange, peaksFor, playTakes } from "@/engine/takes";
 import { useY } from "@/sync/useY";
 import { cn } from "@/lib/utils";
+import { snapBeat, useUi } from "@/ui/store";
 
 const PX_PER_BEAT = 24;
 const HEADER_W = 140;
@@ -46,9 +47,9 @@ export function Playlist({ doc }: { doc: Y.Doc }) {
   const sel = selected && view.find((t) => t.id === selected.trackId)?.clips.find((c) => c.clipId === selected.clipId);
 
   return (
-    <section className="panel flex flex-col gap-3" data-testid="playlist">
-      <div className="flex flex-wrap items-center gap-2">
-        <h2 className="text-sm font-semibold">Playlist</h2>
+    <section className="flex min-h-0 flex-1 flex-col" data-testid="playlist">
+      <div className="flex min-h-9 flex-wrap items-center gap-2 border-b border-border bg-card/60 px-3 py-1">
+        <h2 className="text-sm font-semibold">Playlist <span className="text-[10px] font-normal text-muted-foreground">F5</span></h2>
         {sel && sel.clip.kind === "audio" ? (
           <ClipTools
             clip={sel.clip}
@@ -56,11 +57,11 @@ export function Playlist({ doc }: { doc: Y.Doc }) {
             onDelete={() => { removeClip(doc, sel.trackId, sel.clipId); setSelected(null); }}
           />
         ) : (
-          <span className="text-xs text-muted-foreground">Click a clip to nudge it or delete it.</span>
+          <span className="text-xs text-muted-foreground">Drag a clip to move it (it lands on the Snap grid). Click it to nudge or delete.</span>
         )}
       </div>
 
-      <div className="overflow-x-auto rounded-md border border-border">
+      <div className="min-h-0 flex-1 overflow-auto">
         <div className="relative" style={{ width: HEADER_W + width }}>
           {/* Ruler */}
           <div className="sticky top-0 z-10 flex h-6 border-b border-border bg-card text-[10px] text-muted-foreground">
@@ -87,6 +88,8 @@ export function Playlist({ doc }: { doc: Y.Doc }) {
                         clip={c.clip}
                         hash={take?.hash}
                         key={c.clipId}
+                        beatsPerBar={beatsPerBar}
+                        onMove={(startBeat) => updateClip(doc, c.trackId, c.clipId, { startBeat })}
                         onSelect={() => setSelected({ trackId: c.trackId, clipId: c.clipId })}
                         selected={selected?.clipId === c.clipId}
                         status={!take ? "missing" : take.uploadState === "uploaded" ? "ready" : "uploading"}
@@ -104,8 +107,44 @@ export function Playlist({ doc }: { doc: Y.Doc }) {
   );
 }
 
-function AudioClipView({ clip, hash, selected, status, onSelect }: { clip: AudioClip; hash?: string; selected: boolean; status: "ready" | "uploading" | "missing"; onSelect: () => void }) {
+interface ClipProps {
+  clip: AudioClip;
+  hash?: string;
+  selected: boolean;
+  status: "ready" | "uploading" | "missing";
+  beatsPerBar: number;
+  onSelect: () => void;
+  onMove: (startBeat: number) => void;
+}
+
+function AudioClipView({ clip, hash, selected, status, beatsPerBar, onSelect, onMove }: ClipProps) {
   const canvas = useRef<HTMLCanvasElement>(null);
+  const moved = useRef(false);
+
+  // Drag to move. The clip follows the pointer locally and sends one change on release.
+  const onPointerDown = (e: ReactPointerEvent<HTMLButtonElement>) => {
+    if (e.button !== 0) return;
+    const el = e.currentTarget;
+    const x0 = e.clientX;
+    const snap = useUi.getState().snap;
+    moved.current = false;
+    let beat = clip.startBeat;
+    const move = (ev: PointerEvent) => {
+      const dx = ev.clientX - x0;
+      if (Math.abs(dx) > 3) moved.current = true;
+      if (!moved.current) return;
+      beat = Math.max(0, snapBeat(clip.startBeat + dx / PX_PER_BEAT, snap, beatsPerBar));
+      el.style.transform = `translateX(${(beat - clip.startBeat) * PX_PER_BEAT}px)`;
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      el.style.transform = "";
+      if (moved.current && beat !== clip.startBeat) onMove(beat);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
   const peaks = hash ? peaksFor(hash) : null;
   const left = (clip.startBeat + clip.nudgeMs / 1000 / (60 / Tone.getTransport().bpm.value)) * PX_PER_BEAT;
   const w = Math.max(4, clip.lengthBeats * PX_PER_BEAT);
@@ -143,8 +182,9 @@ function AudioClipView({ clip, hash, selected, status, onSelect }: { clip: Audio
       data-status={status}
       data-testid="clip"
       data-waveform={peaks ? "drawn" : "none"}
-      onClick={onSelect}
-      style={{ left, width: w, height: ROW_H - 8 }}
+      onClick={() => { if (!moved.current) onSelect(); }}
+      onPointerDown={onPointerDown}
+      style={{ left, width: w, height: ROW_H - 8, touchAction: "none" }}
     >
       <span className="truncate px-1.5 text-[10px] leading-4 font-medium">
         {status === "uploading" ? "Take · uploading…" : status === "missing" ? "Take missing" : "Take"}

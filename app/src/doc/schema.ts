@@ -213,10 +213,11 @@ export function barAt(state: PlayState, bpm: number, timeSig: TimeSig, serverMs:
 /** How far ahead a shared start is scheduled, so every browser hears it in time. */
 export const START_LEAD_MS = 150;
 
-export function play(doc: Y.Doc, serverNow: number) {
+/** Starts everyone at bar 1. `leadMs` pushes the start later, e.g. to fit a count-in. */
+export function play(doc: Y.Doc, serverNow: number, leadMs = START_LEAD_MS) {
   getMeta(doc).set("playState", {
     playing: true,
-    startedAtServerMs: serverNow + START_LEAD_MS,
+    startedAtServerMs: serverNow + leadMs,
     bar: 0,
   });
 }

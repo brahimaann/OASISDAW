@@ -60,7 +60,7 @@ function ClerkMe({ children }: { children: ReactNode }) {
 }
 
 export function AccountButton() {
-  if (!clerkKey) return <span className="text-xs text-amber-400">DEV mode (no sign-in)</span>;
+  if (!clerkKey) return <span className="text-xs text-amber-400" title="No sign-in: anyone with the link can join. For local testing only.">DEV</span>;
   return <UserButton />;
 }
 

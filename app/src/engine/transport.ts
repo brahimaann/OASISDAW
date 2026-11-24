@@ -32,6 +32,25 @@ function ensureClick() {
 }
 
 /**
+ * Count-in clicks for the performer only, before the shared start.
+ * `startCtxTime` is when bar 1 lands in this browser.
+ */
+export function countInClicks(startCtxTime: number, bars: number, bpm: number, beatsPerBar: number) {
+  ensureClick();
+  const beat = 60 / bpm;
+  const n = bars * beatsPerBar;
+  for (let i = 0; i < n; i++) {
+    const t = startCtxTime - (n - i) * beat;
+    if (t > Tone.now()) click!.triggerAttackRelease(i % beatsPerBar === 0 ? "C6" : "C5", "32n", t);
+  }
+}
+
+/** Context time at which the Transport will next (or did last) hit its start, if known. */
+export function transportStartCtxTime(): number | null {
+  return anchor ? anchor.ctxTime - anchor.offsetS : null;
+}
+
+/**
  * Where the local Transport was last started: at context time `ctxTime` it
  * was at `offsetS` seconds from bar 0, at `bpm`. Used to place recorded audio.
  */

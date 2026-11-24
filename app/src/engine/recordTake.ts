@@ -8,10 +8,10 @@ import { concat, Recorder } from "@/audio/recorder";
 import { dropAudio, getChunks, getWav, listTakes, putChunk, putTake, putWav, updateTake, type LocalTake } from "@/audio/takeStore";
 import { encodeWav, sha256Hex } from "@/audio/wav";
 import { newId } from "@/doc/ids";
-import { addRecordedTake, getTakes, play, setTakeUploaded, stop } from "@/doc/schema";
+import { addRecordedTake, getTakes, play, readMeta, secondsPerBar, setTakeUploaded, START_LEAD_MS, stop } from "@/doc/schema";
 import { audioContext } from "@/engine/audioContext";
 import { putLocalBuffer } from "@/engine/takes";
-import { currentBpm, transportSecondsAt, transportVersion } from "@/engine/transport";
+import { countInClicks, currentBpm, transportStartCtxTime, transportSecondsAt, transportVersion } from "@/engine/transport";
 import { serverNow } from "@/sync/clock";
 import { uploadToPool } from "@/sync/upload";
 
@@ -24,6 +24,8 @@ export interface RecordOptions {
   latencyMs: number;
   getToken: () => Promise<string>;
   onUploadProgress?: (takeId: string, fraction: number) => void;
+  /** Bars of count-in clicks before bar 1. The mic is already rolling during them. */
+  countInBars?: number;
 }
 
 export interface TakeInProgress {
@@ -77,7 +79,16 @@ export async function startRecording(o: RecordOptions): Promise<TakeInProgress> 
     }
   };
   await rec.start();
-  play(o.doc, serverNow()); // everyone hears the beat; the performer records against it
+  // Everyone hears the beat; the performer records against it. A count-in
+  // pushes the shared start later and clicks only in the performer's ears.
+  const { timeSig } = readMeta(o.doc);
+  const countInS = (o.countInBars ?? 0) * secondsPerBar(bpm, timeSig);
+  play(o.doc, serverNow(), START_LEAD_MS + countInS * 1000);
+  if (countInS > 0) {
+    // followDoc has already applied the new start (local Yjs changes fire at once).
+    const bar1 = transportStartCtxTime() ?? ctx.currentTime + START_LEAD_MS / 1000 + countInS;
+    countInClicks(bar1, o.countInBars!, bpm, timeSig[0]);
+  }
 
   return {
     takeId,

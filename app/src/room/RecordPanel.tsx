@@ -13,6 +13,7 @@ import { audioContext } from "@/engine/audioContext";
 import { resumePendingTakes, startRecording, type TakeInProgress } from "@/engine/recordTake";
 import { unlockAudio } from "@/engine/transport";
 import { useY } from "@/sync/useY";
+import { useUi } from "@/ui/store";
 
 type Phase = "idle" | "opening" | "checking" | "recording" | "saving";
 
@@ -117,6 +118,7 @@ export function RecordPanel({ doc, roomId }: { doc: Y.Doc; roomId: string }) {
     const lat = latency ?? { ms: estimateLatencyMs(audioContext(), s), measured: false };
     take.current = await startRecording({
       doc, roomId, userId: me.id, userName: me.name, stream: s, latencyMs: lat.ms, getToken: me.getToken, onUploadProgress,
+      countInBars: useUi.getState().countInBars,
     });
     setPhase("recording");
   };
@@ -128,13 +130,21 @@ export function RecordPanel({ doc, roomId }: { doc: Y.Doc; roomId: string }) {
   }, [playState.playing]);
 
   const recording = phase === "recording";
+  useEffect(() => useUi.getState().set({ recording }), [recording]);
+  const { recordOpen, set: setUi } = useUi();
   const uploading = Object.values(uploads);
 
   return (
-    <section className="panel flex flex-col gap-3" data-testid="record-panel">
+    <section
+      aria-label="Record vocals"
+      className="absolute top-2 left-2 z-40 flex w-[min(640px,calc(100%-16px))] flex-col gap-3 rounded-lg border border-white/15 bg-card p-4 shadow-2xl"
+      data-testid="record-panel"
+      hidden={!recordOpen}
+    >
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="text-sm font-semibold">Record vocals</h2>
         <span className="text-xs text-muted-foreground">Recorded on your computer at full quality, then sent up. The call is never the take.</span>
+        <button aria-label="Close record panel" className="ml-auto size-6 rounded text-muted-foreground hover:bg-muted" onClick={() => setUi({ recordOpen: false })}>✕</button>
       </div>
 
       <div className="flex flex-wrap items-center gap-3 text-sm">

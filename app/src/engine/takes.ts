@@ -136,3 +136,26 @@ export function playTakes(doc: Y.Doc): () => void {
     bus.dispose();
   };
 }
+
+/* ---------- auditioning ---------- */
+
+let previewing: AudioBufferSourceNode | null = null;
+
+/** Plays a take once from the top, for the browser. A second click stops it. Returns false if it isn't loaded yet. */
+export function previewTake(take: Take): boolean {
+  const buf = bufferFor(take);
+  if (previewing) {
+    previewing.stop();
+    previewing = null;
+    return true;
+  }
+  if (!buf) return false;
+  const ctx = audioContext();
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  src.connect(ctx.destination);
+  src.onended = () => { if (previewing === src) previewing = null; };
+  src.start();
+  previewing = src;
+  return true;
+}
