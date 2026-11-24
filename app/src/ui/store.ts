@@ -10,9 +10,16 @@ export type WindowId = "rack" | "mixer" | "piano";
 export type WindowMode = "floating" | "docked";
 /** Snap grid in beats. 0 = off. */
 export type Snap = 4 | 1 | 0.5 | 0.25 | 0;
-export type BrowserTab = "sounds" | "takes";
+export type BrowserTab = "sounds" | "patterns" | "takes";
+/** PAT loops the pattern open in the rack; SONG plays the playlist. Each person picks their own. */
+export type PlayMode = "pat" | "song";
 
 interface UiState {
+  playMode: PlayMode;
+  /** The pattern open in the rack. Yours alone, like the layout. */
+  patternId: string;
+  /** Playlist clip you clicked (for Delete and the clip tools). Not saved. */
+  selectedClip: { trackId: string; clipId: string } | null;
   clickOn: boolean;
   countInBars: 0 | 1 | 2;
   snap: Snap;
@@ -46,6 +53,9 @@ const safeStorage: StateStorage = {
 export const useUi = create<UiState>()(
   persist(
     (set, get) => ({
+      playMode: "pat",
+      patternId: "main",
+      selectedClip: null,
       clickOn: true,
       countInBars: 1,
       snap: 1,
@@ -72,7 +82,7 @@ export const useUi = create<UiState>()(
       name: "oasis-layout",
       version: 1,
       storage: createJSONStorage(() => safeStorage),
-      partialize: ({ chatOpen: _c, recordOpen: _r, recording: _rec, set: _s, showWindow: _w, toggleWindow: _t, ...keep }) => keep,
+      partialize: ({ selectedClip: _sel, chatOpen: _c, recordOpen: _r, recording: _rec, set: _s, showWindow: _w, toggleWindow: _t, ...keep }) => keep,
     },
   ),
 );

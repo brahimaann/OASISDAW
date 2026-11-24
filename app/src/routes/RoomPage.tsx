@@ -3,13 +3,14 @@ import { Link, useParams } from "react-router-dom";
 import * as Y from "yjs";
 import { useMe } from "@/auth/auth";
 import { newId } from "@/doc/ids";
-import { ensureMainPattern, getPatterns, getTracks, play, readMeta, stop } from "@/doc/schema";
+import { ensureMainPattern, getPatterns, getTracks, listPatterns, play, readMeta, stop } from "@/doc/schema";
 import { playRack } from "@/engine/rack";
 import { debugClock, followDoc, unlockAudio } from "@/engine/transport";
 import { serverNow, syncClock } from "@/sync/clock";
 import { useRoom, type PresenceUser } from "@/sync/useRoom";
 import { useUi } from "@/ui/store";
 import { Browser } from "@/room/Browser";
+import { stepPattern } from "@/room/ChannelRack";
 import { ChatDrawer } from "@/room/Chat";
 import { Playlist } from "@/room/Playlist";
 import { RecordPanel } from "@/room/RecordPanel";
@@ -85,7 +86,7 @@ export function RoomPage() {
 
 /**
  * FL keys: Space play/stop, F5 playlist (closes the floating window),
- * F6 rack, F7 piano roll, F9 mixer, Alt+F8 browser. Ctrl/Cmd+Z undoes only
+ * F6 rack, F7 piano roll, F9 mixer, Alt+F8 browser, + / − next or previous pattern. Ctrl/Cmd+Z undoes only
  * your own edits; Shift adds redo.
  */
 function useShortcuts(doc: Y.Doc | null) {
@@ -115,6 +116,11 @@ function useShortcuts(doc: Y.Doc | null) {
       if (e.key === "F6") { e.preventDefault(); ui.toggleWindow("rack"); return; }
       if (e.key === "F7") { e.preventDefault(); ui.toggleWindow("piano"); return; }
       if (e.key === "F9") { e.preventDefault(); ui.toggleWindow("mixer"); return; }
+      if ((e.key === "+" || e.key === "=" || e.key === "-") && !typing && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        ui.set({ patternId: stepPattern(listPatterns(doc), ui.patternId, e.key === "-" ? -1 : 1) });
+        return;
+      }
       if (e.key === "Escape") ui.set({ chatOpen: false, recordOpen: false });
     };
     window.addEventListener("keydown", onKey);

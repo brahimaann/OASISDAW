@@ -8,6 +8,7 @@ import type * as Y from "yjs";
 import { getTakes, getTracks, type AudioClip, type Take } from "@/doc/schema";
 import { audioContext } from "@/engine/audioContext";
 import { computePeaks } from "@/audio/wav";
+import { useUi } from "@/ui/store";
 
 /* ---------- buffers, loaded once per hash ---------- */
 
@@ -79,6 +80,9 @@ export function playTakes(doc: Y.Doc): () => void {
   const tracks = getTracks(doc);
   const takes = getTakes(doc);
   const bus = new Tone.Volume(0).toDestination();
+  // Takes are part of the song. PAT mode only loops the rack, like FL.
+  bus.mute = useUi.getState().playMode === "pat";
+  const offMode = useUi.subscribe((s) => { bus.mute = s.playMode === "pat"; });
 
   const sync = () => {
     const transport = Tone.getTransport();
@@ -131,6 +135,7 @@ export function playTakes(doc: Y.Doc): () => void {
     takes.unobserve(sync);
     off();
     clearInterval(bpmTimer);
+    offMode();
     for (const l of live.values()) l.player.dispose();
     live.clear();
     bus.dispose();

@@ -8,7 +8,7 @@ import type * as Y from "yjs";
 import { useMe } from "@/auth/auth";
 import { deviceKey, estimateLatencyMs, loadLatency, looksBluetooth, measureLatency, saveLatency } from "@/audio/latency";
 import { openMic } from "@/audio/recorder";
-import { readMeta } from "@/doc/schema";
+import { getTracks, readMeta, type Clip } from "@/doc/schema";
 import { audioContext } from "@/engine/audioContext";
 import { resumePendingTakes, startRecording, type TakeInProgress } from "@/engine/recordTake";
 import { unlockAudio } from "@/engine/transport";
@@ -116,6 +116,11 @@ export function RecordPanel({ doc, roomId }: { doc: Y.Doc; roomId: string }) {
     const s = await ensureMic();
     if (!s) return;
     const lat = latency ?? { ms: estimateLatencyMs(audioContext(), s), measured: false };
+    // A take belongs to the song: record against the playlist once the beat is on it.
+    // Before that (empty playlist), keep looping the rack so there's a beat to sing to.
+    let arranged = false;
+    getTracks(doc).forEach((t) => t.get("clips")?.forEach((c: Clip) => { if (c.kind === "pattern") arranged = true; }));
+    if (arranged) useUi.getState().set({ playMode: "song" });
     take.current = await startRecording({
       doc, roomId, userId: me.id, userName: me.name, stream: s, latencyMs: lat.ms, getToken: me.getToken, onUploadProgress,
       countInBars: useUi.getState().countInBars,

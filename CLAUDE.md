@@ -72,7 +72,7 @@ A **browser-first collaborative DAW**. Open a link and you're in the same sessio
 Y.Doc
 ├─ meta      Y.Map   { bpm, timeSig, swing, name, version, playState: { playing, startedAtServerMs, bar } }
 ├─ sounds    Y.Map   soundId -> { hash, name, url, durationS, sampleRate }
-├─ patterns  Y.Map   patternId -> Y.Map { name, length (16|32|64), rows: Y.Map rowId -> Y.Map { soundId, name, order, steps: Y.Map stepIndex -> velocity 0-1 (missing = off), pitch, gain 0-1, pan 0-1, mute, solo } }
+├─ patterns  Y.Map   patternId -> Y.Map { name, length (16|32|64|128 steps), order, rows: Y.Map rowId -> Y.Map { soundId, name, order, steps: Y.Map stepIndex -> velocity 0-1 (missing = off), pitch, gain 0-1, pan 0-1, mute, solo } }
 ├─ tracks    Y.Map   trackId -> { kind: 'playlist', name, order, clips: Y.Map clipId -> Clip }
 │                    Clip = { kind: 'audio', takeId, trimIn, nudgeMs, ... } | { kind: 'pattern', patternId, offsetBeats, ... }
 │                    both:  { startBeat, lengthBeats, gain 0-1, fadeInBeats, fadeOutBeats, mute }
@@ -90,7 +90,7 @@ Rules:
 - **Playlist (decided 2026-11-22):** `tracks` is an FL-style playlist. Any row can hold audio clips (takes) and pattern clips. Week 1 only fills it with vocal takes (Wednesday). Pattern clips, and editing clip length, trims and fades on the playlist, come after week 1, with no schema change.
 - Rows carry `order` (a sort key) because a Y.Map has no order, and `name` for display.
 - A row's `soundId` is a key in `sounds`, or `builtin:<id>` for the synth drums every browser can make (kick, snare, clap, hat, openhat, rim, tom, 808). They stand in until real one-shots are uploaded.
-- The room's rack is the pattern with id `main`, created with a 4-row starter kit on first open.
+- The room's first pattern has id `main`, created with a 4-row starter kit on first open. More patterns (+ New copies the sounds, Clone copies the steps too) sort by `order`. Length is 1, 2, 4 or 8 bars (cap raised from 64 to 128 steps on 2026-11-24). Changing a pattern's length also resizes playlist clips that showed the whole pattern.
 - The code lives in `app/src/doc/schema.ts` (SCHEMA_VERSION = 1). Change both together.
 
 ## 7. Week 1 build plan (Shape Up: the time is fixed and the scope bends)
@@ -189,3 +189,4 @@ npm start                   # production: builds the app, server serves it + /sy
 - audio/ui components are copied into `app/src/components/audio-ui` from the `base-nova` style of `ouestlabs/audio-ui` (MIT). Its site is the shadcn registry, so re-copy from there to update.
 - Layout (built 2026-11-24): top bar (transport, BPM, metronome, count-in, snap, window buttons, people, chat, invite), browser on the left (collapses to a side tab), playlist in the center, and one window for rack / piano roll / mixer that floats (FL) or docks to the bottom (Ableton) and can be squashed. Each person's layout is saved in their browser (`app/src/ui/store.ts`). Keys: Space play/stop, F5 playlist, F6 rack, F7 piano roll, F9 mixer, Alt+F8 browser, Ctrl/Cmd+Z undo (your own edits only).
 - Count-in pushes the shared start back by N bars and clicks only for the person recording. Audio from before bar 1 stays in the file and is trimmed off the clip.
+- Patterns (built 2026-11-24): the pattern open in your rack and PAT / SONG are per person (not in Yjs). PAT loops your open pattern and mutes takes; SONG plays the playlist's pattern clips and takes. Recording switches you to SONG once the playlist has pattern clips. On the playlist: click an empty spot to paint the open pattern (snapped down to the grid), drag a pattern from the browser's Patterns tab, double-click a pattern clip to open it, right-click or Delete removes a clip. The empty lane at the bottom makes a new track.

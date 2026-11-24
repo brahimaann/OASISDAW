@@ -1,15 +1,22 @@
 /**
  * The playlist, in the middle of the screen: tracks on a bar ruler, clips
- * placed by beat. It holds recorded takes now; pattern clips come Wednesday.
+ * placed by beat. Tracks hold recorded takes and pattern clips, FL-style.
+ * Click an empty spot to paint the pattern open in the rack; drag a pattern
+ * from the browser; double-click a pattern clip to open it.
  */
-import { useEffect, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useRef, useSyncExternalStore, type DragEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import * as Tone from "tone";
 import type * as Y from "yjs";
-import { getTakes, getTracks, listTracks, readMeta, removeClip, updateClip, type AudioClip, type Clip } from "@/doc/schema";
+import { newId } from "@/doc/ids";
+import {
+  addPatternClip, addTrack, getPatterns, getTakes, getTracks, listPatterns, listTracks, readMeta, removeClip, updateClip,
+  type AudioClip, type Clip, type PatternClip,
+} from "@/doc/schema";
 import { onBuffersChange, peaksFor, playTakes } from "@/engine/takes";
 import { useY } from "@/sync/useY";
 import { cn } from "@/lib/utils";
 import { snapBeat, useUi } from "@/ui/store";
+import { PATTERN_MIME, patternColor } from "./Browser";
 
 const PX_PER_BEAT = 24;
 const HEADER_W = 140;
@@ -21,6 +28,16 @@ onBuffersChange(() => bufferVersion++);
 const useBufferVersion = () => useSyncExternalStore((cb) => { const off = onBuffersChange(cb); return () => { off(); }; }, () => bufferVersion);
 
 interface ClipView { trackId: string; clipId: string; clip: Clip }
+
+/** Where a click or drop lands, in beats, rounded down to the snap grid so a clip starts in the cell you clicked. */
+function beatAt(e: { clientX: number }, lane: HTMLElement, beatsPerBar: number) {
+  const x = e.clientX - lane.getBoundingClientRect().left;
+  const beat = Math.max(0, x / PX_PER_BEAT);
+  const { snap } = useUi.getState();
+  if (!snap) return beat;
+  const grid = snap === 4 ? beatsPerBar : snap;
+  return Math.floor(beat / grid) * grid;
+}
 
 export function Playlist({ doc }: { doc: Y.Doc }) {
   useEffect(() => playTakes(doc), [doc]);
@@ -36,6 +53,7 @@ export function Playlist({ doc }: { doc: Y.Doc }) {
     }),
   );
   const takeStates = useY(takes, () => Object.fromEntries([...takes.entries()].map(([id, t]) => [id, t])));
+  const patternInfo = useY(getPatterns(doc), () => Object.fromEntries(listPatterns(doc).map((p) => [p.id, { name: p.name }])));
   const { timeSig } = useY(doc.getMap("meta"), () => readMeta(doc));
   const beatsPerBar = timeSig[0];
 
@@ -43,8 +61,61 @@ export function Playlist({ doc }: { doc: Y.Doc }) {
   const bars = Math.max(16, Math.ceil(lastBeat / beatsPerBar) + 4);
   const width = bars * beatsPerBar * PX_PER_BEAT;
 
-  const [selected, setSelected] = useState<{ trackId: string; clipId: string } | null>(null);
+  const selected = useUi((u) => u.selectedClip);
+  const setUi = useUi((u) => u.set);
+  const setSelected = (sel: { trackId: string; clipId: string } | null) => setUi({ selectedClip: sel });
   const sel = selected && view.find((t) => t.id === selected.trackId)?.clips.find((c) => c.clipId === selected.clipId);
+
+  // Delete / Backspace removes the clip you clicked.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Delete" && e.key !== "Backspace") return;
+      if ((e.target as HTMLElement | null)?.closest("input, textarea, select, [contenteditable]")) return;
+      const s = useUi.getState().selectedClip;
+      if (!s) return;
+      e.preventDefault();
+      removeClip(doc, s.trackId, s.clipId);
+      setUi({ selectedClip: null });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [doc, setUi]);
+
+  /** Paints a pattern at a beat. `trackId` null = the empty lane at the bottom: make a new track. */
+  const place = (trackId: string | null, patternId: string, beat: number) => {
+    if (!getPatterns(doc).has(patternId)) return;
+    doc.transact(() => {
+      const t = trackId ?? addTrack(doc, newId);
+      const clipId = newId();
+      addPatternClip(doc, t, clipId, patternId, beat);
+      setSelected({ trackId: t, clipId });
+    });
+  };
+
+  const currentPattern = () => {
+    const id = useUi.getState().patternId;
+    return getPatterns(doc).has(id) ? id : (listPatterns(doc)[0]?.id ?? "main");
+  };
+
+  const laneProps = (trackId: string | null) => ({
+    onPointerDown: (e: ReactPointerEvent<HTMLDivElement>) => {
+      if (e.button !== 0 || e.target !== e.currentTarget) return; // clicks on clips are theirs
+      place(trackId, currentPattern(), beatAt(e, e.currentTarget, beatsPerBar));
+    },
+    onDragOver: (e: DragEvent<HTMLDivElement>) => {
+      if (!e.dataTransfer.types.includes(PATTERN_MIME)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+    },
+    onDrop: (e: DragEvent<HTMLDivElement>) => {
+      const id = e.dataTransfer.getData(PATTERN_MIME);
+      if (!id) return;
+      e.preventDefault();
+      place(trackId, id, beatAt(e, e.currentTarget, beatsPerBar));
+    },
+  });
+
+  const grid = { backgroundImage: `repeating-linear-gradient(to right, transparent 0 ${beatsPerBar * PX_PER_BEAT - 1}px, var(--border) ${beatsPerBar * PX_PER_BEAT - 1}px ${beatsPerBar * PX_PER_BEAT}px)` };
 
   return (
     <section className="flex min-h-0 flex-1 flex-col" data-testid="playlist">
@@ -57,7 +128,9 @@ export function Playlist({ doc }: { doc: Y.Doc }) {
             onDelete={() => { removeClip(doc, sel.trackId, sel.clipId); setSelected(null); }}
           />
         ) : (
-          <span className="text-xs text-muted-foreground">Drag a clip to move it (it lands on the Snap grid). Click it to nudge or delete.</span>
+          <span className="text-xs text-muted-foreground">
+            Click an empty spot to paint the pattern open in the rack. Drag clips to move them. Double-click a pattern to open it. Right-click or Delete removes one.
+          </span>
         )}
       </div>
 
@@ -71,35 +144,60 @@ export function Playlist({ doc }: { doc: Y.Doc }) {
             ))}
           </div>
 
-          {view.length === 0 ? (
-            <div className="flex h-16 items-center px-3 text-sm text-muted-foreground">Record a take and it shows up here, on the beat, for everyone.</div>
-          ) : (
-            view.map((t) => (
-              <div className="flex border-b border-border/60" key={t.id} style={{ height: ROW_H }}>
-                <div className="sticky left-0 z-10 flex shrink-0 items-center border-r border-border bg-card px-2 text-xs font-medium" style={{ width: HEADER_W }}>
-                  <span className="truncate">{t.name}</span>
-                </div>
-                <div className="relative flex-1" style={{ backgroundImage: `repeating-linear-gradient(to right, transparent 0 ${beatsPerBar * PX_PER_BEAT - 1}px, var(--border) ${beatsPerBar * PX_PER_BEAT - 1}px ${beatsPerBar * PX_PER_BEAT}px)` }}>
-                  {t.clips.map((c) => {
-                    if (c.clip.kind !== "audio") return null;
-                    const take = takeStates[c.clip.takeId];
+          {view.map((t) => (
+            <div className="flex border-b border-border/60" data-track={t.name} key={t.id} style={{ height: ROW_H }}>
+              <div className="sticky left-0 z-10 flex shrink-0 items-center border-r border-border bg-card px-2 text-xs font-medium" style={{ width: HEADER_W }}>
+                <span className="truncate">{t.name}</span>
+              </div>
+              <div className="relative flex-1 cursor-copy" data-testid="lane" style={grid} {...laneProps(t.id)}>
+                {t.clips.map((c) => {
+                  const common = {
+                    beatsPerBar,
+                    onMove: (startBeat: number) => updateClip(doc, c.trackId, c.clipId, { startBeat }),
+                    onSelect: () => setSelected({ trackId: c.trackId, clipId: c.clipId }),
+                    onRemove: () => { removeClip(doc, c.trackId, c.clipId); setSelected(null); },
+                    selected: selected?.clipId === c.clipId,
+                  };
+                  if (c.clip.kind === "pattern") {
+                    const pid = c.clip.patternId;
                     return (
-                      <AudioClipView
+                      <PatternClipView
+                        {...common}
                         clip={c.clip}
-                        hash={take?.hash}
                         key={c.clipId}
-                        beatsPerBar={beatsPerBar}
-                        onMove={(startBeat) => updateClip(doc, c.trackId, c.clipId, { startBeat })}
-                        onSelect={() => setSelected({ trackId: c.trackId, clipId: c.clipId })}
-                        selected={selected?.clipId === c.clipId}
-                        status={!take ? "missing" : take.uploadState === "uploaded" ? "ready" : "uploading"}
+                        name={patternInfo[pid]?.name ?? "Missing pattern"}
+                        onOpen={() => { setUi({ patternId: pid }); useUi.getState().showWindow("rack"); }}
                       />
                     );
-                  })}
-                </div>
+                  }
+                  const take = takeStates[c.clip.takeId];
+                  return (
+                    <AudioClipView
+                      {...common}
+                      clip={c.clip}
+                      hash={take?.hash}
+                      key={c.clipId}
+                      status={!take ? "missing" : take.uploadState === "uploaded" ? "ready" : "uploading"}
+                    />
+                  );
+                })}
               </div>
-            ))
-          )}
+            </div>
+          ))}
+
+          {/* An empty lane at the bottom: paint or drop here for a new track. */}
+          <div className="flex border-b border-border/40" style={{ height: ROW_H }}>
+            <div className="sticky left-0 z-10 flex shrink-0 items-center border-r border-border bg-card/50 px-2 text-xs text-muted-foreground" style={{ width: HEADER_W }}>
+              + New track
+            </div>
+            <div className="relative flex-1 cursor-copy" data-testid="new-lane" style={grid} {...laneProps(null)}>
+              {view.length === 0 && (
+                <span className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-sm text-muted-foreground">
+                  Click here to place the pattern from the rack, or record a take.
+                </span>
+              )}
+            </div>
+          </div>
           <Playhead />
         </div>
       </div>
@@ -107,44 +205,72 @@ export function Playlist({ doc }: { doc: Y.Doc }) {
   );
 }
 
-interface ClipProps {
-  clip: AudioClip;
-  hash?: string;
-  selected: boolean;
-  status: "ready" | "uploading" | "missing";
-  beatsPerBar: number;
-  onSelect: () => void;
-  onMove: (startBeat: number) => void;
-}
-
-function AudioClipView({ clip, hash, selected, status, beatsPerBar, onSelect, onMove }: ClipProps) {
-  const canvas = useRef<HTMLCanvasElement>(null);
+/**
+ * Drag to move. The clip follows the pointer locally and sends one change
+ * on release. Returns whether the last press was a drag, so it isn't also a click.
+ */
+function useClipDrag(startBeat: number, beatsPerBar: number, onMove: (b: number) => void) {
   const moved = useRef(false);
-
-  // Drag to move. The clip follows the pointer locally and sends one change on release.
-  const onPointerDown = (e: ReactPointerEvent<HTMLButtonElement>) => {
+  const onPointerDown = (e: ReactPointerEvent<HTMLElement>) => {
     if (e.button !== 0) return;
+    e.stopPropagation();
     const el = e.currentTarget;
     const x0 = e.clientX;
     const snap = useUi.getState().snap;
     moved.current = false;
-    let beat = clip.startBeat;
+    let beat = startBeat;
     const move = (ev: PointerEvent) => {
       const dx = ev.clientX - x0;
       if (Math.abs(dx) > 3) moved.current = true;
       if (!moved.current) return;
-      beat = Math.max(0, snapBeat(clip.startBeat + dx / PX_PER_BEAT, snap, beatsPerBar));
-      el.style.transform = `translateX(${(beat - clip.startBeat) * PX_PER_BEAT}px)`;
+      beat = Math.max(0, snapBeat(startBeat + dx / PX_PER_BEAT, snap, beatsPerBar));
+      el.style.transform = `translateX(${(beat - startBeat) * PX_PER_BEAT}px)`;
     };
     const up = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
       el.style.transform = "";
-      if (moved.current && beat !== clip.startBeat) onMove(beat);
+      if (moved.current && beat !== startBeat) onMove(beat);
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
   };
+  return { moved, onPointerDown };
+}
+
+interface CommonClipProps {
+  selected: boolean;
+  beatsPerBar: number;
+  onSelect: () => void;
+  onMove: (startBeat: number) => void;
+  onRemove: () => void;
+}
+
+function PatternClipView({ clip, name, selected, beatsPerBar, onSelect, onMove, onRemove, onOpen }: CommonClipProps & { clip: PatternClip; name: string; onOpen: () => void }) {
+  const { moved, onPointerDown } = useClipDrag(clip.startBeat, beatsPerBar, onMove);
+  const color = patternColor(clip.patternId);
+  return (
+    <button
+      className={cn("absolute top-1 flex flex-col overflow-hidden rounded-md border text-left text-black", selected ? "border-white" : "border-black/20", clip.mute && "opacity-40")}
+      data-pattern={clip.patternId}
+      data-start-beat={clip.startBeat.toFixed(4)}
+      data-testid="pattern-clip"
+      onClick={() => { if (!moved.current) onSelect(); }}
+      onContextMenu={(e: ReactMouseEvent) => { e.preventDefault(); onRemove(); }}
+      onDoubleClick={onOpen}
+      onPointerDown={onPointerDown}
+      style={{ left: clip.startBeat * PX_PER_BEAT, width: Math.max(4, clip.lengthBeats * PX_PER_BEAT), height: ROW_H - 8, background: color, touchAction: "none" }}
+      title={`${name}: double-click to open in the rack, right-click to remove`}
+    >
+      <span className="truncate px-1.5 text-[10px] leading-4 font-semibold">{name}</span>
+      <span aria-hidden className="mx-1.5 mb-1 flex-1 rounded-sm bg-black/15" />
+    </button>
+  );
+}
+
+function AudioClipView({ clip, hash, selected, status, beatsPerBar, onSelect, onMove, onRemove }: CommonClipProps & { clip: AudioClip; hash?: string; status: "ready" | "uploading" | "missing" }) {
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const { moved, onPointerDown } = useClipDrag(clip.startBeat, beatsPerBar, onMove);
   const peaks = hash ? peaksFor(hash) : null;
   const left = (clip.startBeat + clip.nudgeMs / 1000 / (60 / Tone.getTransport().bpm.value)) * PX_PER_BEAT;
   const w = Math.max(4, clip.lengthBeats * PX_PER_BEAT);
@@ -183,6 +309,7 @@ function AudioClipView({ clip, hash, selected, status, beatsPerBar, onSelect, on
       data-testid="clip"
       data-waveform={peaks ? "drawn" : "none"}
       onClick={() => { if (!moved.current) onSelect(); }}
+      onContextMenu={(e) => { e.preventDefault(); onRemove(); }}
       onPointerDown={onPointerDown}
       style={{ left, width: w, height: ROW_H - 8, touchAction: "none" }}
     >

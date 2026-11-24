@@ -45,7 +45,7 @@ export interface RowFields {
   /** Sort key for the rack. Rows are a map, so order lives here. */
   order: number;
   /**
-   * Step index ("0".."63") -> velocity 0-1. A missing key means off.
+   * Step index ("0".."127") -> velocity 0-1. A missing key means off.
    * A Y.Map, not a Y.Array: two people toggling the same step at once must
    * end with one value, and a Y.Array delete+insert would end with two.
    */
@@ -57,11 +57,16 @@ export interface RowFields {
   solo: boolean;
 }
 
-export type PatternLength = 16 | 32 | 64;
+/** Steps (16 = 1 bar of 16th notes). Up to 8 bars. */
+export type PatternLength = 16 | 32 | 64 | 128;
+export const PATTERN_LENGTHS: PatternLength[] = [16, 32, 64, 128];
+export const MAX_STEPS = 128;
 
 export interface PatternFields {
   name: string;
   length: PatternLength;
+  /** Sort key for the pattern picker. Missing on old docs: those sort first. */
+  order?: number;
   rows: Y.Map<Y.Map<unknown>>;
 }
 
@@ -250,12 +255,15 @@ export function sendChat(doc: Y.Doc, msg: ChatMessage) {
   getChat(doc).push([{ ...msg, text }]);
 }
 
-/** Creates an empty pattern. Used from Tuesday on (channel rack). */
+/** Creates an empty pattern at the end of the picker. */
 export function createPattern(doc: Y.Doc, id: string, name: string, length: PatternLength = 16) {
   const pattern = new Y.Map<unknown>() as TypedMap<PatternFields>;
+  let maxOrder = 0;
+  getPatterns(doc).forEach((p) => (maxOrder = Math.max(maxOrder, (p.get("order") as number) ?? 0)));
   doc.transact(() => {
     pattern.set("name", name);
     pattern.set("length", length);
+    pattern.set("order", maxOrder + 1);
     pattern.set("rows", new Y.Map<Y.Map<unknown>>());
     getPatterns(doc).set(id, pattern);
   });
@@ -284,7 +292,7 @@ export function addRow(pattern: TypedMap<PatternFields>, rowId: string, soundId:
 /** Sets one step's velocity (0 = off). Sends only that one change, not the whole pattern. */
 export function setStep(row: TypedMap<RowFields>, index: number, velocity: number) {
   const steps = row.get("steps");
-  if (!steps || !Number.isInteger(index) || index < 0 || index >= 64) return;
+  if (!steps || !Number.isInteger(index) || index < 0 || index >= MAX_STEPS) return;
   const v = Math.min(1, Math.max(0, velocity));
   if (v === 0) steps.delete(String(index));
   else steps.set(String(index), v);
@@ -305,6 +313,64 @@ export function listRows(pattern: TypedMap<PatternFields> | undefined): { id: st
 
 export function removeRow(pattern: TypedMap<PatternFields>, rowId: string) {
   pattern.get("rows")?.delete(rowId);
+}
+
+/* ---------- patterns ---------- */
+
+export function listPatterns(doc: Y.Doc): { id: string; pattern: TypedMap<PatternFields>; name: string; length: PatternLength }[] {
+  const out: { id: string; pattern: TypedMap<PatternFields>; name: string; length: PatternLength }[] = [];
+  getPatterns(doc).forEach((pattern, id) => out.push({ id, pattern, name: pattern.get("name") ?? "Pattern", length: pattern.get("length") ?? 16 }));
+  return out.sort((a, b) => (a.pattern.get("order") ?? 0) - (b.pattern.get("order") ?? 0) || a.id.localeCompare(b.id));
+}
+
+export function patternLength(doc: Y.Doc, patternId: string): PatternLength {
+  return getPatterns(doc).get(patternId)?.get("length") ?? 16;
+}
+
+/** A name nobody has used yet: "Pattern 2", "Pattern 3", ... */
+function nextPatternName(doc: Y.Doc) {
+  const names = new Set(listPatterns(doc).map((p) => p.name));
+  let n = names.size + 1;
+  while (names.has(`Pattern ${n}`)) n++;
+  return `Pattern ${n}`;
+}
+
+/**
+ * A new pattern with the same sounds as `from` (FL keeps the channels when
+ * you start a new pattern), steps off. With `withSteps`, a full copy (Clone).
+ */
+export function newPatternFrom(doc: Y.Doc, from: string | null, makeId: () => string, withSteps = false): string {
+  const id = makeId();
+  const source = from ? getPatterns(doc).get(from) : undefined;
+  doc.transact(() => {
+    const name = withSteps && source ? `${source.get("name") ?? "Pattern"} copy` : nextPatternName(doc);
+    const pattern = createPattern(doc, id, name, source?.get("length") ?? 16);
+    for (const { row } of listRows(source)) {
+      const copy = addRow(pattern, makeId(), row.get("soundId") ?? "", row.get("name") ?? "Sound");
+      for (const k of ["pitch", "gain", "pan", "mute", "solo"] as const) copy.set(k, row.get(k) as never);
+      if (withSteps) row.get("steps")?.forEach((v: number, i: string) => copy.get("steps")?.set(i, v));
+    }
+  });
+  return id;
+}
+
+/**
+ * Changes a pattern's length. Playlist clips that showed the whole pattern
+ * grow or shrink with it; clips someone sized by hand keep their size.
+ */
+export function setPatternLength(doc: Y.Doc, patternId: string, length: PatternLength) {
+  const pattern = getPatterns(doc).get(patternId);
+  if (!pattern) return;
+  const oldBeats = (pattern.get("length") ?? 16) / 4;
+  doc.transact(() => {
+    pattern.set("length", length);
+    getTracks(doc).forEach((track) => {
+      const clips = track.get("clips");
+      clips?.forEach((c: Clip, clipId: string) => {
+        if (c.kind === "pattern" && c.patternId === patternId && Math.abs(c.lengthBeats - oldBeats) < 1e-9) clips.set(clipId, { ...c, lengthBeats: length / 4 });
+      });
+    });
+  });
 }
 
 /* ---------- built-in sounds ---------- */
@@ -352,6 +418,30 @@ export function ensureTrack(doc: Y.Doc, trackId: string, name: string) {
   track.set("clips", new Y.Map<Clip>());
   tracks.set(trackId, track);
   return track;
+}
+
+/** A new empty playlist track at the bottom: "Track 1", "Track 2", ... */
+export function addTrack(doc: Y.Doc, makeId: () => string): string {
+  const id = makeId();
+  ensureTrack(doc, id, `Track ${getTracks(doc).size + 1}`);
+  return id;
+}
+
+/** Puts a pattern on the playlist, as long as the pattern. */
+export function addPatternClip(doc: Y.Doc, trackId: string, clipId: string, patternId: string, startBeat: number) {
+  const clips = getTracks(doc).get(trackId)?.get("clips");
+  if (!clips) return;
+  clips.set(clipId, {
+    kind: "pattern",
+    patternId,
+    offsetBeats: 0,
+    startBeat,
+    lengthBeats: patternLength(doc, patternId) / 4,
+    gain: 1,
+    fadeInBeats: 0,
+    fadeOutBeats: 0,
+    mute: false,
+  });
 }
 
 export function listTracks(doc: Y.Doc) {

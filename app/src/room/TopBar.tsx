@@ -55,6 +55,20 @@ export function TopBar({ doc, provider, roomId, status }: { doc: Y.Doc; provider
       </div>
 
       <div className="flex items-center gap-1 rounded-lg border border-border bg-background p-1">
+        <div aria-label="Play mode" className="flex flex-col overflow-hidden rounded-md border border-border text-[9px] leading-[14px] font-bold" role="radiogroup" title="PAT loops the pattern in your rack. SONG plays the playlist. Only you switch.">
+          {(["pat", "song"] as const).map((m) => (
+            <button
+              aria-checked={ui.playMode === m}
+              className={cn("px-1.5", ui.playMode === m ? (m === "pat" ? "bg-amber-400 text-black" : "bg-primary text-primary-foreground") : "text-muted-foreground hover:text-foreground")}
+              data-testid={`mode-${m}`}
+              key={m}
+              onClick={() => ui.set({ playMode: m })}
+              role="radio"
+            >
+              {m.toUpperCase()}
+            </button>
+          ))}
+        </div>
         <button
           aria-label={playState.playing ? "Stop (Space)" : "Play (Space)"}
           className={cn("h-8 w-11 rounded-md font-bold", playState.playing ? "bg-primary text-primary-foreground" : "hover:bg-accent")}
