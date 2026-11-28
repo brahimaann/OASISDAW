@@ -11,6 +11,6 @@
     "build": "npm run build -w app",
     "typecheck": "npm run typecheck -w app && npm run typecheck -w server",
     "e2e": "node e2e/two-tabs.mjs",
-    "start": "npm run build && NODE_ENV=production npm run start -w server"
+    "start": "npm run build && npm run start:prod -w server"
   }
 }

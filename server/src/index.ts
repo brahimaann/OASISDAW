@@ -6,6 +6,9 @@ import { verifyToken } from "@clerk/backend";
 import { createFiles } from "./files.ts";
 import { serveStatic } from "./static.ts";
 
+// `--production` works on Windows too, where `NODE_ENV=production cmd` doesn't.
+if (process.argv.includes("--production")) process.env.NODE_ENV = "production";
+
 const port = Number(process.env.PORT ?? 1234);
 const clerkSecretKey = process.env.CLERK_SECRET_KEY;
 const dbFile = process.env.OASIS_DB ?? "data/oasis.sqlite";
