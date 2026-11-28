@@ -94,7 +94,10 @@ export async function createFiles({ dir, authorize }: FilesOptions) {
       res.end("Not found\n");
       return true;
     }
+    // ?dl=<name> makes a share link download with a readable file name.
+    const dl = new URL(url, "http://x").searchParams.get("dl")?.replace(/[^\w .()-]+/g, "").slice(0, 120);
     res.writeHead(200, {
+      ...(dl ? { "Content-Disposition": `attachment; filename="${dl}.wav"` } : {}),
       "Content-Type": "audio/wav",
       "Content-Length": info.size,
       "Cache-Control": "public, max-age=31536000, immutable",

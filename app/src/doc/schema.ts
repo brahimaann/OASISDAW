@@ -141,6 +141,8 @@ export interface MetaFields {
   timeSig: TimeSig;
   swing: number; // 0-1
   playState: PlayState;
+  /** Musical key as typed, e.g. "Fmin". Optional; goes in export file names. */
+  key?: string;
 }
 
 export const DEFAULT_META: MetaFields = {

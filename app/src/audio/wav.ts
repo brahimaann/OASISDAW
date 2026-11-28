@@ -43,3 +43,39 @@ export function computePeaks(samples: Float32Array, buckets: number): Float32Arr
   }
   return out;
 }
+
+/** 24-bit PCM WAV, any channel count. What you send people: every DAW opens it. */
+export function encodeWavPcm(channels: Float32Array[], sampleRate: number): Blob {
+  const n = channels[0]?.length ?? 0;
+  const ch = channels.length;
+  const bytes = 3;
+  const dataLen = n * ch * bytes;
+  const buf = new ArrayBuffer(44 + dataLen);
+  const v = new DataView(buf);
+  const str = (o: number, s: string) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  str(0, "RIFF");
+  v.setUint32(4, 36 + dataLen, true);
+  str(8, "WAVE");
+  str(12, "fmt ");
+  v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true); // PCM
+  v.setUint16(22, ch, true);
+  v.setUint32(24, sampleRate, true);
+  v.setUint32(28, sampleRate * ch * bytes, true);
+  v.setUint16(32, ch * bytes, true);
+  v.setUint16(34, 24, true);
+  str(36, "data");
+  v.setUint32(40, dataLen, true);
+  const out = new Uint8Array(buf, 44);
+  let o = 0;
+  for (let i = 0; i < n; i++) {
+    for (let c = 0; c < ch; c++) {
+      const s = Math.max(-1, Math.min(1, channels[c][i]));
+      const x = Math.round(s < 0 ? s * 0x800000 : s * 0x7fffff);
+      out[o++] = x & 0xff;
+      out[o++] = (x >> 8) & 0xff;
+      out[o++] = (x >> 16) & 0xff;
+    }
+  }
+  return new Blob([buf], { type: "audio/wav" });
+}

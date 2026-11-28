@@ -15,6 +15,7 @@ import { useY } from "@/sync/useY";
 import { SNAP_OPTIONS, useUi, type Snap, type WindowId } from "@/ui/store";
 import { cn } from "@/lib/utils";
 import { ChatButton } from "./Chat";
+import { ExportButton } from "./ExportDialog";
 import { PresenceButton } from "./Presence";
 
 export function TopBar({ doc, provider, roomId, status }: { doc: Y.Doc; provider: HocuspocusProvider; roomId: string; status: string }) {
@@ -149,6 +150,7 @@ export function TopBar({ doc, provider, roomId, status }: { doc: Y.Doc; provider
         />
         <PresenceButton provider={provider} />
         <ChatButton doc={doc} />
+        <ExportButton doc={doc} />
         <button className="h-8 rounded-full bg-primary px-3 text-xs font-semibold text-primary-foreground hover:opacity-90" onClick={invite} title="Copy the room link">
           {copied ? "Link copied" : "Invite"}
         </button>
