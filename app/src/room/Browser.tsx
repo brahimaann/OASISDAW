@@ -3,9 +3,12 @@
  * rack, and the project's takes. Collapses to a thin vertical tab so the
  * playlist gets the room.
  */
+import { useState } from "react";
 import type * as Y from "yjs";
 import { newId } from "@/doc/ids";
-import { BUILTIN_SOUNDS, getPatterns, getTakes, listPatterns, newPatternFrom, type Take } from "@/doc/schema";
+import { BUILTIN_SOUNDS, getPatterns, getTakes, listPatterns, newPatternFrom, readMeta, setBpm, type Take } from "@/doc/schema";
+import { addStarterPattern, STARTER_PATTERNS } from "@/doc/starterPatterns";
+import { serverNow } from "@/sync/clock";
 import { previewTake } from "@/engine/takes";
 import { unlockAudio } from "@/engine/transport";
 import { previewSound } from "@/engine/voices";
@@ -141,6 +144,45 @@ function PatternList({ doc }: { doc: Y.Doc }) {
         ))}
       </ul>
       <button className="btn h-7 text-xs" onClick={() => { set({ patternId: newPatternFrom(doc, patternId, newId) }); showWindow("rack"); }}>+ New pattern</button>
+      <StarterList doc={doc} />
+    </div>
+  );
+}
+
+/** Drum grids from the pattern breakdowns sheet. Click adds a copy; the tempo button sets the room's BPM. */
+function StarterList({ doc }: { doc: Y.Doc }) {
+  const { set, showWindow } = useUi();
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-3">
+      <button aria-expanded={open} className="flex w-full items-center gap-1 px-1 text-[10px] font-semibold tracking-wider text-muted-foreground uppercase hover:text-foreground" data-testid="starter-toggle" onClick={() => setOpen(!open)}>
+        <span aria-hidden>{open ? "▾" : "▸"}</span> Starter patterns
+      </button>
+      {open && (
+        <ul className="mt-1" data-testid="starter-list">
+          {STARTER_PATTERNS.map((p) => (
+            <li className="flex items-center gap-1" key={p.id}>
+              <button
+                className="flex min-w-0 flex-1 items-center gap-2 rounded px-2 py-1 text-left text-sm hover:bg-accent"
+                data-starter={p.id}
+                onClick={() => { set({ patternId: addStarterPattern(doc, p, newId) }); showWindow("rack"); }}
+                title={`Add "${p.name}" as a new pattern`}
+              >
+                <span className="truncate">{p.name}</span>
+                <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">{p.bars} bar{p.bars > 1 ? "s" : ""}</span>
+              </button>
+              <button
+                className="shrink-0 rounded px-1.5 py-1 text-[10px] text-muted-foreground tabular-nums hover:bg-accent hover:text-foreground"
+                data-starter-bpm={p.id}
+                onClick={() => setBpm(doc, p.bpm, serverNow())}
+                title={readMeta(doc).bpm === p.bpm ? "The room is already at this tempo" : `Set the room to ${p.bpm} BPM`}
+              >
+                {p.bpm}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

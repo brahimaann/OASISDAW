@@ -112,6 +112,28 @@ await a.waitForTimeout(400);
 cs = await clips(a);
 if (!cs.some((c) => c.patternId !== "main")) ok("right-click removed the clip for everyone"); else fail("right-click");
 
+// Starter patterns: A adds "Boom bap" from the browser; B gets the grid. The tempo button sets the BPM.
+await a.locator("body").click({ position: { x: 5, y: 5 } });
+await a.getByTestId("browser").getByRole("button", { name: "patterns", exact: true }).click();
+await a.getByTestId("starter-toggle").click();
+await a.locator('[data-starter="ll-04"]').click();
+await b.waitForTimeout(500);
+const boom = await b.evaluate(() => {
+  let out = null;
+  window.__oasisDoc.getMap("patterns").forEach((p) => {
+    if (p.get("name") !== "Boom bap 80") return;
+    const rows = {};
+    p.get("rows").forEach((r) => { rows[r.get("name")] = { sound: r.get("soundId"), steps: [...r.get("steps").keys()].map(Number).sort((x, y) => x - y) }; });
+    out = { length: p.get("length"), rows };
+  });
+  return out;
+});
+if (boom && boom.length === 16 && boom.rows.Kick?.steps.join() === "0,6,8" && boom.rows.Kick.sound === "builtin:kick" && boom.rows.Hat?.steps.length === 8) ok("starter pattern arrived in B with its grid"); else fail("starter: " + JSON.stringify(boom));
+if ((await a.getByTestId("pattern-picker").locator("option:checked").textContent()) === "Boom bap 80") ok("starter opened in A's rack"); else fail("starter open");
+await a.locator('[data-starter-bpm="ll-04"]').click();
+await b.waitForTimeout(400);
+if ((await b.evaluate(() => window.__oasisDoc.getMap("meta").get("bpm"))) === 80) ok("tempo button set the room to 80 BPM"); else fail("starter bpm");
+
 await a.screenshot({ path: process.env.SHOT ?? "e2e-patterns.png" });
 await browser.close();
 console.log(process.exitCode ? "SOME CHECKS FAILED" : "ALL CHECKS PASSED");
