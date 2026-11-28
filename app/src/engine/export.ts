@@ -9,18 +9,20 @@
 import * as Tone from "tone";
 import type * as Y from "yjs";
 import { encodeWavPcm } from "@/audio/wav";
-import { getPatterns, getTakes, getTracks, listRows, readMeta, type Clip } from "@/doc/schema";
+import { audibleTracks, faderToDb, getPatterns, getTakes, getTracks, listRows, readChannel, readMeta, type Clip } from "@/doc/schema";
 import { bufferFor } from "@/engine/takes";
 import { makeVoice } from "@/engine/voices";
 
 export type ExportRange = { kind: "song" } | { kind: "pattern"; patternId: string };
 
-interface Hit { stem: string; rowId: string; soundId: string; time: number; velocity: number; gain: number; pan: number }
-interface AudioPart { stem: string; buffer: AudioBuffer; time: number; offset: number; duration: number; gain: number; fadeIn: number; fadeOut: number }
+interface Hit { stem: string; bus: string; rowId: string; soundId: string; time: number; velocity: number; gain: number; pan: number }
+interface AudioPart { stem: string; bus: string; buffer: AudioBuffer; time: number; offset: number; duration: number; gain: number; fadeIn: number; fadeOut: number }
 
 export interface RenderPlan {
   hits: Hit[];
   audio: AudioPart[];
+  /** Track strips: id -> dB and pan (-1..1). "" = straight to the output (pattern loop). */
+  buses: Record<string, { db: number; pan: number }>;
   /** Seconds of music, before the tail. */
   length: number;
   /** Extra seconds so reverb-free synth tails (808s) ring out. 0 for a loop. */
@@ -38,9 +40,10 @@ export function planRender(doc: Y.Doc, range: ExportRange): RenderPlan {
   const patterns = getPatterns(doc);
   const hits: Hit[] = [];
   const audio: AudioPart[] = [];
+  const buses: RenderPlan["buses"] = {};
   let missingTakes = 0;
 
-  const playPattern = (patternId: string, fromStep: number, toStep: number, startStepInPattern: number, atStep: number) => {
+  const playPattern = (bus: string, patternId: string, fromStep: number, toStep: number, startStepInPattern: number, atStep: number) => {
     const pattern = patterns.get(patternId);
     const len = pattern?.get("length") ?? 16;
     const rows = listRows(pattern);
@@ -53,6 +56,7 @@ export function planRender(doc: Y.Doc, range: ExportRange): RenderPlan {
         if (v <= 0) continue;
         hits.push({
           stem: row.get("name") ?? "Sound",
+          bus,
           rowId: id,
           soundId: row.get("soundId") ?? "",
           time: (s - atStep) * sixteenth,
@@ -67,19 +71,23 @@ export function planRender(doc: Y.Doc, range: ExportRange): RenderPlan {
   let length: number;
   if (range.kind === "pattern") {
     const len = patterns.get(range.patternId)?.get("length") ?? 16;
-    playPattern(range.patternId, 0, len, 0, 0);
+    playPattern("", range.patternId, 0, len, 0, 0);
     length = len * sixteenth;
   } else {
     let endBeat = 0;
     const takes = getTakes(doc);
-    getTracks(doc).forEach((track) => {
+    const audible = audibleTracks(doc);
+    getTracks(doc).forEach((track, trackId) => {
       const trackName = track.get("name") ?? "Track";
+      if (!audible.has(trackId)) return;
+      const c = readChannel(doc, trackId);
+      buses[trackId] = { db: faderToDb(c.gain), pan: c.pan * 2 - 1 };
       track.get("clips")?.forEach((clip: Clip) => {
         if (clip.mute) return;
         endBeat = Math.max(endBeat, clip.startBeat + clip.lengthBeats);
         if (clip.kind === "pattern") {
           const start = Math.round(clip.startBeat * 4);
-          playPattern(clip.patternId, start, start + Math.round(clip.lengthBeats * 4), Math.round(clip.offsetBeats * 4), 0);
+          playPattern(trackId, clip.patternId, start, start + Math.round(clip.lengthBeats * 4), Math.round(clip.offsetBeats * 4), 0);
           return;
         }
         const take = takes.get(clip.takeId);
@@ -88,6 +96,7 @@ export function planRender(doc: Y.Doc, range: ExportRange): RenderPlan {
         const time = clip.startBeat * beat + clip.nudgeMs / 1000;
         audio.push({
           stem: trackName,
+          bus: trackId,
           buffer,
           time: Math.max(0, time),
           offset: clip.trimIn + Math.max(0, -time),
@@ -102,7 +111,7 @@ export function planRender(doc: Y.Doc, range: ExportRange): RenderPlan {
   }
 
   const stems = [...new Set([...hits.map((h) => h.stem), ...audio.map((a) => a.stem)])];
-  return { hits, audio, length, tail: range.kind === "pattern" ? 0 : 2, stems, missingTakes };
+  return { hits, audio, buses, length, tail: range.kind === "pattern" ? 0 : 2, stems, missingTakes };
 }
 
 /** Renders the plan (or only one stem of it) to a stereo buffer. */
@@ -111,21 +120,34 @@ export async function renderPlan(plan: RenderPlan, onlyStem?: string, sampleRate
   const rendered = await Tone.Offline(() => {
     // Built inside the offline context. Keep this synchronous: Tone swaps its
     // global context back as soon as this returns.
+    const buses = new Map<string, Tone.ToneAudioNode>();
+    const busFor = (id: string) => {
+      if (!id) return Tone.getDestination();
+      let b = buses.get(id);
+      if (!b) {
+        const cfg = plan.buses[id] ?? { db: 0, pan: 0 };
+        const pan = new Tone.Panner(cfg.pan).toDestination();
+        b = new Tone.Volume(cfg.db).connect(pan);
+        buses.set(id, b);
+      }
+      return b;
+    };
     const strips = new Map<string, ReturnType<typeof makeVoice>>();
     for (const h of plan.hits) {
       if (onlyStem && h.stem !== onlyStem) continue;
-      let voice = strips.get(h.rowId);
+      const key = `${h.bus}|${h.rowId}`;
+      let voice = strips.get(key);
       if (voice === undefined) {
-        const pan = new Tone.Panner(h.pan * 2 - 1).toDestination();
+        const pan = new Tone.Panner(h.pan * 2 - 1).connect(busFor(h.bus));
         const vol = new Tone.Volume(Tone.gainToDb(h.gain)).connect(pan);
         voice = makeVoice(h.soundId, vol);
-        strips.set(h.rowId, voice);
+        strips.set(key, voice);
       }
       voice?.trigger(h.time, h.velocity);
     }
     for (const a of plan.audio) {
       if (onlyStem && a.stem !== onlyStem) continue;
-      const p = new Tone.Player(a.buffer).toDestination();
+      const p = new Tone.Player(a.buffer).connect(busFor(a.bus));
       p.volume.value = Tone.gainToDb(Math.max(1e-4, a.gain));
       p.fadeIn = a.fadeIn;
       p.fadeOut = a.fadeOut;

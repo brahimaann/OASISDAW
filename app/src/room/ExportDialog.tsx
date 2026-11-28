@@ -8,7 +8,7 @@ import * as Tone from "tone";
 import type * as Y from "yjs";
 import { useMe } from "@/auth/auth";
 import { sha256Hex } from "@/audio/wav";
-import { getMeta, getPatterns, readMeta } from "@/doc/schema";
+import { getMeta, getPatterns, getTracks, readMeta } from "@/doc/schema";
 import { bufferToWav, fileBase, peakOf, planRender, renderPlan, type ExportRange } from "@/engine/export";
 import { uploadToPool } from "@/sync/upload";
 import { useY } from "@/sync/useY";
@@ -41,7 +41,7 @@ function ExportDialog({ doc, onClose }: { doc: Y.Doc; onClose: () => void }) {
   const meta = useY(getMeta(doc), () => readMeta(doc));
   const patternId = useUi((u) => u.patternId);
   const patternName = useY(getPatterns(doc), () => getPatterns(doc).get(patternId)?.get("name") ?? "Pattern 1", [patternId]);
-  const hasArrangement = useY(doc.getMap("tracks"), () => planRender(doc, { kind: "song" }).length > 0);
+  const hasArrangement = useY(getTracks(doc), () => { let n = 0; getTracks(doc).forEach((t) => (n += t.get("clips")?.size ?? 0)); return n > 0; });
 
   const [name, setName] = useState(meta.name || "");
   const [key, setKey] = useState(() => getMeta(doc).get("key") ?? "");
@@ -66,7 +66,7 @@ function ExportDialog({ doc, onClose }: { doc: Y.Doc; onClose: () => void }) {
     const r: ExportRange = range === "song" ? { kind: "song" } : { kind: "pattern", patternId };
     const plan = planRender(doc, r);
     if (plan.length <= 0) {
-      setNote("Nothing to export yet. Put patterns or takes on the playlist, or export the open pattern.");
+      setNote("Nothing to export: the playlist is empty, or every track on it is muted. Put patterns or takes on it, or export the open pattern.");
       return;
     }
     const base = fileBase(name || meta.name, meta.bpm, key) + (range === "pattern" ? ` - ${patternName}` : "");

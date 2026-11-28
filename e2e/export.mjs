@@ -104,5 +104,28 @@ if (songPath) {
   if (downloads[0].suggestedFilename() === "Late night - 140bpm - Fmin.wav") ok("name and key were kept for the next export"); else fail("name/key not kept");
 } else fail("no song download");
 
+// 4. Track header mixer: turn Track 1 down 20 steps, the bounce gets quieter; mute it, nothing to export.
+await page.getByRole("button", { name: "Close export" }).click();
+const loud = readWav(await readFile(songPath)).peak;
+const vol = page.getByLabel("Track 1 volume");
+await vol.focus();
+for (let i = 0; i < 20; i++) await page.keyboard.press("ArrowLeft");
+await page.waitForTimeout(200);
+const ch = await page.evaluate(() => window.__oasisDoc.getMap("mixer").toJSON());
+console.log("     mixer:", JSON.stringify(ch));
+downloads.length = 0;
+await page.getByTestId("export-button").click();
+await page.getByTestId("export-go").click();
+await page.getByTestId("export-note").waitFor({ timeout: 30000 });
+await page.waitForTimeout(500);
+const quiet = readWav(await readFile(await downloads[0].path())).peak;
+if (quiet < loud * 0.8) ok(`track volume reaches the bounce (peak ${loud.toFixed(2)} -> ${quiet.toFixed(2)})`); else fail(`volume ${loud} -> ${quiet}`);
+await page.getByRole("button", { name: "Close export" }).click();
+await page.getByRole("button", { name: "Mute Track 1" }).click();
+await page.getByTestId("export-button").click();
+await page.getByTestId("export-go").click();
+await page.getByTestId("export-note").waitFor();
+if (/Nothing to export/.test(await page.getByTestId("export-note").textContent())) ok("a muted track is left out of the bounce"); else fail("mute in export");
+
 await browser.close();
 console.log(process.exitCode ? "SOME CHECKS FAILED" : "ALL CHECKS PASSED");

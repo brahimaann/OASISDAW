@@ -117,8 +117,9 @@ export interface Take {
   uploadState: UploadState;
 }
 
+/** A mixer strip. Keyed by trackId for playlist tracks. Whole object, last write wins. */
 export interface Channel {
-  gain: number; // 0-1
+  gain: number; // 0-1, 0.8 = 0 dB
   pan: number; // 0-1
   mute: boolean;
   solo: boolean;
@@ -315,6 +316,31 @@ export function listRows(pattern: TypedMap<PatternFields> | undefined): { id: st
 
 export function removeRow(pattern: TypedMap<PatternFields>, rowId: string) {
   pattern.get("rows")?.delete(rowId);
+}
+
+/* ---------- mixer ---------- */
+
+export const DEFAULT_CHANNEL: Channel = { gain: 0.8, pan: 0.5, mute: false, solo: false, fx: [] };
+
+export function readChannel(doc: Y.Doc, channelId: string): Channel {
+  return { ...DEFAULT_CHANNEL, ...getMixer(doc).get(channelId) };
+}
+
+export function setChannel(doc: Y.Doc, channelId: string, patch: Partial<Channel>) {
+  getMixer(doc).set(channelId, { ...readChannel(doc, channelId), ...patch });
+}
+
+/** Fader position (0-1, 0.8 = unity) to decibels. */
+export function faderToDb(gain: number): number {
+  return gain <= 0.001 ? -Infinity : 40 * Math.log10(gain / 0.8);
+}
+
+/** Which tracks you can hear: muted ones are out, and if any are soloed, only those. */
+export function audibleTracks(doc: Y.Doc): Set<string> {
+  const ids: string[] = [];
+  getTracks(doc).forEach((_t, id) => ids.push(id));
+  const anySolo = ids.some((id) => readChannel(doc, id).solo);
+  return new Set(ids.filter((id) => { const c = readChannel(doc, id); return anySolo ? c.solo : !c.mute; }));
 }
 
 /* ---------- patterns ---------- */

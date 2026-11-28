@@ -9,6 +9,7 @@
 import * as Tone from "tone";
 import type * as Y from "yjs";
 import { getPatterns, getTracks, listRows, type Clip, type PatternClip, type PatternFields, type TypedMap } from "@/doc/schema";
+import { trackInput } from "@/engine/mixer";
 import { makeVoice, type Voice } from "@/engine/voices";
 import { useUi } from "@/ui/store";
 
@@ -22,17 +23,17 @@ interface Strip {
 const lengthOf = (p: TypedMap<PatternFields> | undefined) => p?.get("length") ?? 16;
 
 /** The pattern clips playing at a 16th (absolute step from bar 1), and the step inside each. */
-function songHits(doc: Y.Doc, absStep: number): { patternId: string; step: number }[] {
-  const out: { patternId: string; step: number }[] = [];
+function songHits(doc: Y.Doc, absStep: number): { patternId: string; step: number; trackId: string }[] {
+  const out: { patternId: string; step: number; trackId: string }[] = [];
   const patterns = getPatterns(doc);
-  getTracks(doc).forEach((track) => {
+  getTracks(doc).forEach((track, trackId) => {
     track.get("clips")?.forEach((clip: Clip) => {
       if (clip.kind !== "pattern" || clip.mute) return;
       const start = Math.round(clip.startBeat * 4);
       const end = start + Math.round(clip.lengthBeats * 4);
       if (absStep < start || absStep >= end) return;
       const len = lengthOf(patterns.get(clip.patternId));
-      out.push({ patternId: clip.patternId, step: (absStep - start + Math.round((clip as PatternClip).offsetBeats * 4)) % len });
+      out.push({ trackId, patternId: clip.patternId, step: (absStep - start + Math.round((clip as PatternClip).offsetBeats * 4)) % len });
     });
   });
   return out;
@@ -59,18 +60,20 @@ export function playRack(doc: Y.Doc): () => void {
   const strips = new Map<string, Strip>();
   const transport = Tone.getTransport();
 
-  const stripFor = (rowId: string, soundId: string): Strip => {
-    let s = strips.get(rowId);
+  /** One strip per row per track (a pattern can sit on several tracks), into that track's mixer strip. */
+  const stripFor = (trackId: string | null, rowId: string, soundId: string): Strip => {
+    const key = `${trackId ?? ""}|${rowId}`;
+    let s = strips.get(key);
     if (s && s.soundId !== soundId) {
       s.voice?.dispose();
       s.voice = makeVoice(soundId, s.vol);
       s.soundId = soundId;
     }
     if (!s) {
-      const pan = new Tone.Panner(0).toDestination();
+      const pan = new Tone.Panner(0).connect(trackId ? trackInput(trackId) : Tone.getDestination());
       const vol = new Tone.Volume(0).connect(pan);
       s = { soundId, vol, pan, voice: makeVoice(soundId, vol) };
-      strips.set(rowId, s);
+      strips.set(key, s);
     }
     return s;
   };
@@ -81,11 +84,11 @@ export function playRack(doc: Y.Doc): () => void {
     s.pan.dispose();
   };
 
-  const playPatternStep = (patternId: string, step: number, time: number) => {
+  const playPatternStep = (trackId: string | null, patternId: string, step: number, time: number) => {
     const rows = listRows(getPatterns(doc).get(patternId));
     const anySolo = rows.some(({ row }) => row.get("solo"));
     for (const { id: rowId, row } of rows) {
-      const s = stripFor(rowId, row.get("soundId") ?? "");
+      const s = stripFor(trackId, rowId, row.get("soundId") ?? "");
       s.vol.volume.setValueAtTime(Tone.gainToDb(row.get("gain") ?? 0.8), time);
       s.pan.pan.setValueAtTime((row.get("pan") ?? 0.5) * 2 - 1, time);
       const audible = anySolo ? row.get("solo") : !row.get("mute");
@@ -99,9 +102,9 @@ export function playRack(doc: Y.Doc): () => void {
     const { playMode, patternId } = useUi.getState();
     if (playMode === "pat") {
       const pattern = getPatterns(doc).get(patternId) ? patternId : "main";
-      playPatternStep(pattern, abs % lengthOf(getPatterns(doc).get(pattern)), time);
+      playPatternStep(null, pattern, abs % lengthOf(getPatterns(doc).get(pattern)), time);
     } else {
-      for (const h of songHits(doc, abs)) playPatternStep(h.patternId, h.step, time);
+      for (const h of songHits(doc, abs)) playPatternStep(h.trackId, h.patternId, h.step, time);
     }
   }, "16n", 0);
 
@@ -109,9 +112,9 @@ export function playRack(doc: Y.Doc): () => void {
   const sweep = setInterval(() => {
     const live = new Set<string>();
     getPatterns(doc).forEach((p) => p.get("rows")?.forEach((_: unknown, rowId: string) => live.add(rowId)));
-    for (const [rowId, s] of strips) {
-      if (!live.has(rowId)) {
-        strips.delete(rowId);
+    for (const [key, s] of strips) {
+      if (!live.has(key.split("|")[1])) {
+        strips.delete(key);
         // Let any tail ring out before disposing.
         setTimeout(() => disposeStrip(s), 2000);
       }

@@ -4,7 +4,9 @@ import * as Y from "yjs";
 import { useMe } from "@/auth/auth";
 import { newId } from "@/doc/ids";
 import { ensureMainPattern, getPatterns, getTracks, listPatterns, play, readMeta, stop } from "@/doc/schema";
+import { runMixer } from "@/engine/mixer";
 import { playRack } from "@/engine/rack";
+import { playTakes } from "@/engine/takes";
 import { debugClock, followDoc, unlockAudio } from "@/engine/transport";
 import { serverNow, syncClock } from "@/sync/clock";
 import { useRoom, type PresenceUser } from "@/sync/useRoom";
@@ -45,11 +47,15 @@ export function RoomPage() {
     return followDoc(room.doc);
   }, [room, synced, clockReady]);
 
-  // The rack plays whether or not its window is open.
+  // The audio engine runs whether or not any window is open.
   useEffect(() => {
     if (!room || !synced) return;
     ensureMainPattern(room.doc, newId);
-    return playRack(room.doc);
+    const offMixer = runMixer(room.doc);
+    // The mixer first: takes and the rack plug into its track strips.
+    const offRack = playRack(room.doc);
+    const offTakes = playTakes(room.doc);
+    return () => { offTakes(); offRack(); offMixer(); };
   }, [room, synced]);
 
   useEffect(() => {

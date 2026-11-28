@@ -8,6 +8,7 @@ import type * as Y from "yjs";
 import { getTakes, getTracks, type AudioClip, type Take } from "@/doc/schema";
 import { audioContext } from "@/engine/audioContext";
 import { computePeaks } from "@/audio/wav";
+import { trackInput } from "@/engine/mixer";
 import { useUi } from "@/ui/store";
 
 /* ---------- buffers, loaded once per hash ---------- */
@@ -79,10 +80,9 @@ export function playTakes(doc: Y.Doc): () => void {
   const live = new Map<string, Live>();
   const tracks = getTracks(doc);
   const takes = getTakes(doc);
-  const bus = new Tone.Volume(0).toDestination();
   // Takes are part of the song. PAT mode only loops the rack, like FL.
-  bus.mute = useUi.getState().playMode === "pat";
-  const offMode = useUi.subscribe((s) => { bus.mute = s.playMode === "pat"; });
+  const patMode = () => useUi.getState().playMode === "pat";
+  const offMode = useUi.subscribe(() => { for (const l of live.values()) l.player.mute = patMode(); });
 
   const sync = () => {
     const transport = Tone.getTransport();
@@ -90,7 +90,7 @@ export function playTakes(doc: Y.Doc): () => void {
     const secPerBeat = 60 / bpm;
     const seen = new Set<string>();
 
-    tracks.forEach((track) => {
+    tracks.forEach((track, trackId) => {
       const clips = track.get("clips") as Y.Map<AudioClip> | undefined;
       clips?.forEach((clip, clipId) => {
         if (clip.kind !== "audio") return;
@@ -99,13 +99,14 @@ export function playTakes(doc: Y.Doc): () => void {
         const buffer = bufferFor(take);
         if (!buffer || clip.mute) return;
         seen.add(clipId);
-        const key = JSON.stringify([clip, take.hash, bpm]);
+        const key = JSON.stringify([clip, take.hash, bpm, trackId]);
         const existing = live.get(clipId);
         if (existing?.key === key) return;
         existing?.player.dispose();
 
-        const player = new Tone.Player(buffer).connect(bus);
+        const player = new Tone.Player(buffer).connect(trackInput(trackId));
         player.volume.value = Tone.gainToDb(clip.gain);
+        player.mute = patMode(); // after the volume: muting remembers it
         player.fadeIn = clip.fadeInBeats * secPerBeat;
         player.fadeOut = clip.fadeOutBeats * secPerBeat;
         // Position in ticks, so it stays on its beat if the tempo changes.
@@ -138,7 +139,6 @@ export function playTakes(doc: Y.Doc): () => void {
     offMode();
     for (const l of live.values()) l.player.dispose();
     live.clear();
-    bus.dispose();
   };
 }
 

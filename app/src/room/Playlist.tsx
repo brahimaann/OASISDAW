@@ -4,22 +4,23 @@
  * Click an empty spot to paint the pattern open in the rack; drag a pattern
  * from the browser; double-click a pattern clip to open it.
  */
-import { useEffect, useRef, useSyncExternalStore, type DragEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type DragEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import * as Tone from "tone";
 import type * as Y from "yjs";
 import { newId } from "@/doc/ids";
 import {
-  addPatternClip, addTrack, getPatterns, getTakes, getTracks, listPatterns, listTracks, readMeta, removeClip, updateClip,
+  addPatternClip, addTrack, faderToDb, getMixer, getPatterns, readChannel, setChannel, type Channel, getTakes, getTracks, listPatterns, listTracks, readMeta, removeClip, updateClip,
   type AudioClip, type Clip, type PatternClip,
 } from "@/doc/schema";
-import { onBuffersChange, peaksFor, playTakes } from "@/engine/takes";
+import { onBuffersChange, peaksFor } from "@/engine/takes";
+import { Knob } from "@/components/audio-ui/knob";
 import { useY } from "@/sync/useY";
 import { cn } from "@/lib/utils";
 import { snapBeat, useUi } from "@/ui/store";
 import { PATTERN_MIME, patternColor } from "./Browser";
 
 const PX_PER_BEAT = 24;
-const HEADER_W = 140;
+const HEADER_W = 210;
 const ROW_H = 64;
 const NUDGE_LIMIT = 50;
 
@@ -40,7 +41,6 @@ function beatAt(e: { clientX: number }, lane: HTMLElement, beatsPerBar: number) 
 }
 
 export function Playlist({ doc }: { doc: Y.Doc }) {
-  useEffect(() => playTakes(doc), [doc]);
   useBufferVersion();
 
   const tracks = getTracks(doc);
@@ -146,9 +146,7 @@ export function Playlist({ doc }: { doc: Y.Doc }) {
 
           {view.map((t) => (
             <div className="flex border-b border-border/60" data-track={t.name} key={t.id} style={{ height: ROW_H }}>
-              <div className="sticky left-0 z-10 flex shrink-0 items-center border-r border-border bg-card px-2 text-xs font-medium" style={{ width: HEADER_W }}>
-                <span className="truncate">{t.name}</span>
-              </div>
+              <TrackHeader doc={doc} name={t.name} trackId={t.id} />
               <div className="relative flex-1 cursor-copy" data-testid="lane" style={grid} {...laneProps(t.id)}>
                 {t.clips.map((c) => {
                   const common = {
@@ -358,4 +356,56 @@ function Playhead() {
     return () => cancelAnimationFrame(frame);
   }, []);
   return <div aria-hidden className="pointer-events-none absolute top-0 bottom-0 left-0 z-30 w-px bg-primary" ref={ref} style={{ opacity: 0 }} />;
+}
+
+/** BandLab / Ableton-style strip on each track: mute, solo, volume, pan. Shared with everyone. */
+function TrackHeader({ doc, trackId, name }: { doc: Y.Doc; trackId: string; name: string }) {
+  const ch = useY(getMixer(doc), () => readChannel(doc, trackId), [trackId]);
+  // Faders move locally while you drag and send one change when you let go.
+  const [gain, setGain] = useState(ch.gain);
+  const [pan, setPan] = useState(ch.pan);
+  useEffect(() => setGain(ch.gain), [ch.gain]);
+  useEffect(() => setPan(ch.pan), [ch.pan]);
+  const set = (patch: Partial<Channel>) => setChannel(doc, trackId, patch);
+  const db = faderToDb(gain);
+
+  return (
+    <div className="sticky left-0 z-10 flex shrink-0 flex-col justify-center gap-1 border-r border-border bg-card px-2" data-track-header={name} style={{ width: HEADER_W }}>
+      <div className="flex items-center gap-1">
+        <span className="min-w-0 flex-1 truncate text-xs font-medium" title={name}>{name}</span>
+        <button aria-label={`Mute ${name}`} aria-pressed={ch.mute} className={cn("h-5 w-5 rounded border text-[10px] font-bold", ch.mute ? "border-amber-400 bg-amber-400 text-black" : "text-muted-foreground hover:bg-muted")} onClick={() => set({ mute: !ch.mute })}>M</button>
+        <button aria-label={`Solo ${name}`} aria-pressed={ch.solo} className={cn("h-5 w-5 rounded border text-[10px] font-bold", ch.solo ? "border-primary bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted")} onClick={() => set({ solo: !ch.solo })}>S</button>
+      </div>
+      <div className="flex items-center gap-1.5">
+        <input
+          aria-label={`${name} volume`}
+          className="h-1 min-w-0 flex-1 accent-primary"
+          max={1}
+          min={0}
+          onChange={(e) => setGain(Number(e.target.value))}
+          onDoubleClick={() => { setGain(0.8); set({ gain: 0.8 }); }}
+          onPointerUp={() => set({ gain })}
+          onKeyUp={() => set({ gain })}
+          step={0.01}
+          title={`Volume ${Number.isFinite(db) ? `${db > 0 ? "+" : ""}${db.toFixed(1)} dB` : "off"} (double-click for 0 dB)`}
+          type="range"
+          value={gain}
+        />
+        <span className="w-9 text-right text-[10px] text-muted-foreground tabular-nums">{Number.isFinite(db) ? `${db > 0 ? "+" : ""}${db.toFixed(0)}dB` : "-∞"}</span>
+        <Knob
+          anchor={0.5}
+          aria-label={`${name} pan`}
+          formatValue={(v) => (Math.abs(v - 0.5) < 0.01 ? "C" : v < 0.5 ? `L${Math.round((0.5 - v) * 200)}` : `R${Math.round((v - 0.5) * 200)}`)}
+          max={1}
+          min={0}
+          onValueChange={setPan}
+          onValueCommitted={(v) => set({ pan: v })}
+          size="xs"
+          step={0.01}
+          value={pan}
+          valueLabel="hidden"
+        />
+      </div>
+    </div>
+  );
 }

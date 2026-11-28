@@ -14,7 +14,7 @@ const TITLES: Record<WindowId, string> = { rack: "Channel rack", piano: "Piano r
 function WindowBody({ doc }: { doc: Y.Doc }) {
   const w = useUi((s) => s.window);
   if (w === "rack") return <ChannelRack doc={doc} />;
-  if (w === "mixer") return <Placeholder>The mixer lands Friday: a strip per track, Reverb, Delay and Vox buses, and send knobs.</Placeholder>;
+  if (w === "mixer") return <Placeholder>Each track's volume, pan, mute and solo are on its header in the playlist. The full mixer, with Reverb, Delay and Vox buses and sends, comes next week.</Placeholder>;
   return <Placeholder>Piano roll and built-in synth come after week 1.</Placeholder>;
 }
 
